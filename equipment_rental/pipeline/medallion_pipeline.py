@@ -31,7 +31,6 @@ class MedallionPipeline:
         rerun_id: str = None,
         schedule: str = None
     ):
-        # Determine pipeline run ID
         run_id = rerun_id or self.pipeline_manager.start_task(
             source=source_name,
             batch_type=batch_type,
@@ -69,30 +68,19 @@ class MedallionPipeline:
             )
             logger.info(f"Silver validation complete | table: {table_name}")
 
-            # -------- Quarantine Handling --------
-            if table_name.lower() == "rental_transactions":
-                quarantine_df = validated_tables.get("quarantine")
-                if quarantine_df is not None and not quarantine_df.empty:
-                    self.quarantine_handler.save_quarantine(
-                        df=quarantine_df,
-                        table_name=table_name,
-                        pipeline_run_id=run_id
-                    )
-                    logger.warning(f"{len(quarantine_df)} rows quarantined | table: {table_name}")
-
             # -------- Silver Transformation --------
             transformed_tables = self.silver_transformer.transform(
-                validated_tables=validated_tables,  # pass dict
+                validated_tables=validated_tables,
                 table_name=table_name,
                 pipeline_run_id=run_id
             )
-
             logger.info(f"Silver transformation complete | table: {table_name}")
 
             # -------- Gold Aggregation --------
             for tname, df in transformed_tables.items():
-                self.gold.aggregate(df)
-                logger.info(f"Gold aggregation complete | table: {tname}")
+                if df is not None and not df.empty:
+                    self.gold.aggregate(df)
+                    logger.info(f"Gold aggregation complete | table: {tname}")
 
             # -------- Complete Task --------
             self.pipeline_manager.complete_task(run_id)
