@@ -45,16 +45,14 @@ class MedallionPipeline:
         - rerun_id: str -> optional run_id to rerun
         - schedule: str -> optional cron expression
         """
-
+        # Determine pipeline run ID
+        run_id = rerun_id or self.pipeline_manager.start_task(
+            source=source_name,
+            batch_type=batch_type,
+            task_name=table_name
+        )
         if rerun_id:
-            run_id = rerun_id
             logger.info(f"Rerunning failed pipeline | run_id: {run_id}")
-        else:
-            run_id = self.pipeline_manager.start_task(
-                source=source_name,
-                batch_type=batch_type,
-                task_name=table_name
-            )
 
         try:
             logger.info(f"Pipeline started | run_id: {run_id} | table: {table_name}")
@@ -78,11 +76,14 @@ class MedallionPipeline:
 
             # -------- Silver Validation --------
             validated_tables = self.silver_validator.validate(
-                bronze_df, table_name=table_name, source_file=source_file, pipeline_run_id=run_id
+                df=bronze_df,
+                table_name=table_name,
+                source_file=source_file,
+                pipeline_run_id=run_id
             )
             logger.info(f"Silver validation complete | table: {table_name}")
 
-            # Handle quarantine rows
+            # -------- Quarantine Handling --------
             if table_name.lower() == "rental_transactions":
                 quarantine_df = validated_tables.get("quarantine")
                 if quarantine_df is not None and not quarantine_df.empty:
@@ -94,14 +95,33 @@ class MedallionPipeline:
                     logger.warning(f"{len(quarantine_df)} rows quarantined | table: {table_name}")
 
             # -------- Silver Transformation --------
-            transformed_df = self.silver_transformer.transform(
-                validated_tables, table_name, source_file, pipeline_run_id=run_id
-            )
+            # For Rental_Transactions, transform each status table separately
+            if table_name.lower() == "rental_transactions":
+                transformed_tables = {}
+                for status, df in validated_tables.items():
+                    transformed_tables[status] = self.silver_transformer.transform(
+                        df=df,
+                        source_file=source_file,
+                        pipeline_run_id=run_id,
+                        table_name=f"{table_name}_{status}"
+                    )
+            else:
+                # Master tables
+                transformed_tables = {
+                    "all": self.silver_transformer.transform(
+                        df=validated_tables.get("clean") or validated_tables.get("all"),
+                        source_file=source_file,
+                        pipeline_run_id=run_id,
+                        table_name=table_name
+                    )
+                }
+
             logger.info(f"Silver transformation complete | table: {table_name}")
 
             # -------- Gold Aggregation --------
-            self.gold.aggregate(transformed_df)
-            logger.info(f"Gold aggregation complete | table: {table_name}")
+            for tname, df in transformed_tables.items():
+                self.gold.aggregate(df)
+                logger.info(f"Gold aggregation complete | table: {tname}")
 
             # -------- Complete Task --------
             self.pipeline_manager.complete_task(run_id)
