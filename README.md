@@ -43,7 +43,7 @@ Each execution tracks:
 
 ## ✨ Key Features
 
-✅ Interactive runtime input
+✅ Interactive runtime input \\
 ✅ Unique schedule enforcement
 ✅ Multiple batches under one schedule
 ✅ Task-level duration tracking
