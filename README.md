@@ -43,15 +43,15 @@ Each execution tracks:
 
 ## ✨ Key Features
 
-✅ Interactive runtime input \\
-✅ Unique schedule enforcement
-✅ Multiple batches under one schedule
-✅ Task-level duration tracking
-✅ Automatic `next_run_ts` calculation
-✅ Data quality validation
-✅ Structured artifact storage
-✅ Failure handling & logging
-✅ Rerunnable batch design
+- ✅ Interactive runtime input 
+- ✅ Unique schedule enforcement
+- ✅ Multiple batches under one schedule
+- ✅ Task-level duration tracking
+- ✅ Automatic `next_run_ts` calculation
+- ✅ Data quality validation
+- ✅ Structured artifact storage
+- ✅ Failure handling & logging
+- ✅ Rerunnable batch design
 
 ---
 
