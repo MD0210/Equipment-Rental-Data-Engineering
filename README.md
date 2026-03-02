@@ -234,17 +234,9 @@ Source → Bronze → Silver → Gold
 ---
 
 ### 🔹 Orchestration Flow (Metadata Model)
-Source
-↓
-Schedule (unique)
-↓
-Batch (per table)
-↓
-Task (per processing step)
-
+Source → Schedule (unique) → Batch (per table) → Task (per processing step)
 
 Each execution tracks:
-
 - Task status (running / success / failed)
 - Start & end timestamps
 - Execution duration (seconds)
@@ -255,15 +247,15 @@ Each execution tracks:
 
 ## ✨ Key Features
 
-- ✅ Interactive runtime input
-- ✅ Unique schedule enforcement
-- ✅ Multiple batches under one schedule
-- ✅ Task-level duration tracking
-- ✅ Automatic `next_run_ts` calculation
-- ✅ Data quality validation
-- ✅ Structured artifact storage
-- ✅ Failure handling & logging
-- ✅ Rerunnable batch design
+✅ Interactive runtime input
+✅ Unique schedule enforcement
+✅ Multiple batches under one schedule
+✅ Task-level duration tracking
+✅ Automatic `next_run_ts` calculation
+✅ Data quality validation
+✅ Structured artifact storage
+✅ Failure handling & logging
+✅ Rerunnable batch design
 
 ---
 
@@ -274,18 +266,26 @@ Each execution tracks:
 ```bash
 git clone <your-repository-url>
 cd Equipment-Rental-Data-Engineering
+```
 
 ### 2️⃣ Create Virtual Environment (Recommended)
+```bash
 python -m venv venv
 venv\Scripts\activate
+```
 
 ### 3️⃣ Install Dependencies
+```bash
 pip install pandas openpyxl
+```
 
 ### 4️⃣ Execute the Pipeline
+```bash
 python main.py
+```
 
 You will be prompted to provide:
+```bash
 Enter tables (comma-separated)
 Enter source name
 Enter source type (excel/db/api)
@@ -297,9 +297,10 @@ Enter frequency (daily/weekly/hourly/monthly/manual)
 Enter priority number
 Enter active flag (1=active, 0=inactive)
 Enter batch type (full/incremental)
+```
 
 ## 📂 Output Structure
-
+```bash
 After execution:
 artifacts/
 │
@@ -308,8 +309,9 @@ artifacts/
 ├── gold/
 └── pipeline_manager/
     └── pipeline_manager.db
+```
 
-    🧠 Key Design Assumptions
+## 🧠 Key Design Assumptions
 
 schedule_name must be unique.
 
