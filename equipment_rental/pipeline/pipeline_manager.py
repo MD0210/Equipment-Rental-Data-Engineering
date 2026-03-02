@@ -1,4 +1,3 @@
-# equipment_rental/pipeline/pipeline_manager.py
 import os
 import sqlite3
 from datetime import datetime
@@ -7,7 +6,6 @@ from equipment_rental.constants.constants import PIPELINE_DIR
 
 logger = get_logger()
 
-# Ensure pipeline directory exists
 os.makedirs(PIPELINE_DIR, exist_ok=True)
 DB_PATH = os.path.join(PIPELINE_DIR, "pipeline_manager.db")
 
@@ -25,11 +23,8 @@ class PipelineManager:
             CREATE TABLE IF NOT EXISTS source (
                 source_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_name TEXT UNIQUE,
-                connection_text TEXT,
-                bronze_path TEXT,
-                silver_path TEXT,
-                gold_path TEXT,
-                quarantine_path TEXT,
+                source_type TEXT,         -- excel, db, api, artifact
+                connection_text TEXT,     -- filepath, URL, connection string
                 insert_ts TEXT,
                 insert_user TEXT,
                 update_ts TEXT,
@@ -100,7 +95,7 @@ class PipelineManager:
         logger.info(f"Pipeline Manager DB initialized at {self.db_path}")
 
     # ---------------- Source ----------------
-    def add_or_get_source(self, source_name, connection_text, bronze_path=None, silver_path=None, gold_path=None, quarantine_path=None, user="system"):
+    def add_or_get_source(self, source_name, source_type, connection_text, user="system"):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
@@ -108,9 +103,9 @@ class PipelineManager:
             if row:
                 return row[0]
             cursor.execute("""
-                INSERT INTO source (source_name, connection_text, bronze_path, silver_path, gold_path, quarantine_path, insert_ts, insert_user)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (source_name, connection_text, bronze_path, silver_path, gold_path, quarantine_path, datetime.now(), user))
+                INSERT INTO source (source_name, source_type, connection_text, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?)
+            """, (source_name, source_type, connection_text, datetime.now(), user))
             conn.commit()
             return cursor.lastrowid
 
