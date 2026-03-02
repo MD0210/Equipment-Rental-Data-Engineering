@@ -24,17 +24,9 @@ class MedallionPipeline:
         """
         Run the full Medallion pipeline for a single table/sheet and track via PipelineManager.
         Supports Excel and DB sources.
-
-        Parameters:
-        - source_name: str, name of the data source
-        - source_type: str, "excel" or "db"
-        - table_name: str, Excel sheet name or DB table name
-        - file_path: str, path to Excel file (required if source_type=="excel")
-        - db_query: dict, optional, {"connection_str":..., "query":..., "table_name":...}
-        - batch_type: str, "full" or "incremental"
-        - rerun_id: int, optional run_id to rerun failed tasks
         """
 
+        # Use rerun_id if provided
         if rerun_id:
             pipeline_run_id = rerun_id
             logger.info(f"Rerunning failed pipeline tasks | run_id: {pipeline_run_id}")
@@ -64,17 +56,31 @@ class MedallionPipeline:
             logger.info(f"Bronze ingestion complete | rows: {len(bronze_df)} | table: {table_name}")
 
             # -------- Silver Validation --------
-            validated_tables = self.silver_validator.validate_rentals(bronze_df, source_file)
-            validated_df = validated_tables["all"]
+            validated_tables = self.silver_validator.validate(
+                df=bronze_df,
+                table_name=table_name,
+                source_file=source_file,
+                pipeline_run_id=pipeline_run_id
+            )
+
+            # Use appropriate key depending on table type
+            if table_name.lower() == "rental_transactions":
+                validated_df = validated_tables["all"]
+            else:
+                validated_df = validated_tables["clean"]  # For master tables
+
             logger.info(f"Silver validation complete | rows: {len(validated_df)} | table: {table_name}")
 
             # -------- Silver Transformation --------
-            transformed_df = self.silver_transformer.transform_rentals(validated_df, source_file)
+            transformed_df = self.silver_transformer.transform_rentals(
+                validated_df, source_file
+            )
             logger.info(f"Silver transformation complete | rows: {len(transformed_df)} | table: {table_name}")
 
-            # -------- Gold Aggregation --------
-            self.gold.aggregate(transformed_df)
-            logger.info(f"Gold aggregation complete | table: {table_name}")
+            # -------- Gold Aggregation (only for Rental_Transactions) --------
+            if table_name.lower() == "rental_transactions":
+                self.gold.aggregate(transformed_df)
+                logger.info(f"Gold aggregation complete | table: {table_name}")
 
             # -------- Complete Task --------
             self.pipeline_manager.complete_task(pipeline_run_id)
