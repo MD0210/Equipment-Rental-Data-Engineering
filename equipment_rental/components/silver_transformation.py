@@ -61,14 +61,14 @@ class SilverTransformation:
             return transformed_tables
 
         # -------- Master Tables --------
-        else:
-            df_clean = validated_tables.get("clean") or validated_tables.get("all")
-            if df_clean is not None and not df_clean.empty:
-                df_clean = df_clean.copy()
-                df_clean["pipeline_run_id"] = pipeline_run_id
-                df_clean["load_timestamp"] = datetime.now()
-                save_csv(df_clean, f"{SILVER_DIR}/{table_name}_clean.csv")
-                transformed_tables["all"] = df_clean
-                logger.info(f"Master table transformation completed for {table_name} | Rows: {len(df_clean)}")
+        df_clean = validated_tables.get("clean")
+        if df_clean is None or df_clean.empty:
+            df_clean = validated_tables.get("all")
 
-            return transformed_tables
+        if df_clean is not None and not df_clean.empty:
+            df_clean = df_clean.copy()
+            df_clean["pipeline_run_id"] = pipeline_run_id
+            df_clean["load_timestamp"] = datetime.now()
+            save_csv(df_clean, f"{SILVER_DIR}/{table_name}_clean.csv")
+            transformed_tables["all"] = df_clean
+            logger.info(f"Master table transformation completed for {table_name} | Rows: {len(df_clean)}")
