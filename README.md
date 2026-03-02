@@ -313,52 +313,40 @@ artifacts/
 
 ## 🧠 Key Design Assumptions
 
-schedule_name must be unique.
-
-1.One schedule can contain multiple batches.
-
-2. Each table is processed as an independent batch.
-
-3. Bronze stores raw data without transformation.
-
-4. Silver enforces validation, cleansing, and business rules.
-
-5. Gold prepares aggregated reporting datasets.
-
-6. next_run_ts is automatically calculated based on:
-
+1. schedule_name must be unique.
+2. One schedule can contain multiple batches.
+3. Each table is processed as an independent batch.
+4. Bronze stores raw data without transformation.
+5. Silver enforces validation, cleansing, and business rules.
+6. Gold prepares aggregated reporting datasets.
+7. next_run_ts is automatically calculated based on:
  - daily → +1 day
-
  - weekly → +7 days
-
  - hourly → +1 hour
-
  - monthly → +30 days
-
 8. Batch-level reruns are allowed without recreating schedules.
 
 ## 🔍 Data Quality Issues Identified
 During analysis of the Equipment Hire dataset, the following issues were observed:
 
 1️⃣ Missing EndDate
-
 - Causes incorrect rental duration calculations
 - Flagged during Silver validation
 
 2️⃣ Negative Revenue
-
 - Causes reconciliation issues
 - Flagged or rejected in Silver layer
 
 3️⃣ Inconsistent Date Formats
-
 - Converted to standardized datetime format in Silver
 
 4️⃣ Duplicate Transactions
-
 - Deduplicated during transformation
 
 5️⃣ Referential Integrity Issues
+- Orphan CustomerID
+- Orphan EquipmentID
+- Identified during Silver joins
 
 ## 🔁 Rerun Strategy
 
