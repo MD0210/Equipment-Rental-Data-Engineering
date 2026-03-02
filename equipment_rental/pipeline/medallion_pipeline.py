@@ -11,6 +11,7 @@ logger = get_logger()
 
 
 class MedallionPipeline:
+
     def __init__(self):
         self.bronze = BronzeIngestion()
         self.silver_validator = SilverValidation()
@@ -18,18 +19,42 @@ class MedallionPipeline:
         self.gold = GoldAggregation()
         self.pipeline_manager = PipelineManager()
 
-    def run(self, source_name, source_type, table_name, file_path=None, db_query=None, batch_type="full",
-            schedule_name=None, frequency="manual", run_ts=None, timezone=None, priority_nbr=1, active_flag=1):
+    def run(
+        self,
+        source_name,
+        source_type,
+        table_name,
+        file_path=None,
+        db_query=None,
+        batch_type="full",
+        schedule_name=None,
+        frequency="manual",
+        run_ts=None,
+        timezone=None,
+        priority_nbr=1,
+        active_flag=1
+    ):
+
+        run_id = None  # ✅ Prevent UnboundLocalError
+
         try:
-            # -------- Source --------
+            logger.info(f"Pipeline started | table: {table_name}")
+
+            # ======================================================
+            # 1️⃣ SOURCE
+            # ======================================================
             data_source_id = self.pipeline_manager.add_or_get_source(
                 source_name=source_name,
                 source_type=source_type,
-                connection_text=file_path or (db_query["connection_str"] if db_query else None)
+                connection_text=file_path or (
+                    db_query["connection_str"] if db_query else None
+                )
             )
 
-            # -------- Schedule --------
-            schedule_id = self.pipeline_manager.add_schedule(
+            # ======================================================
+            # 2️⃣ SCHEDULE 
+            # ======================================================
+            schedule_id = self.pipeline_manager.add_or_get_schedule(
                 source_id=data_source_id,
                 schedule_name=schedule_name or f"manual_{table_name}",
                 frequency=frequency,
@@ -39,7 +64,9 @@ class MedallionPipeline:
                 active_flag=active_flag
             )
 
-            # -------- Batch --------
+            # ======================================================
+            # 3️⃣ BATCH 
+            # ======================================================
             batch_id = self.pipeline_manager.add_batch(
                 schedule_id=schedule_id,
                 batch_name=table_name,
@@ -48,15 +75,17 @@ class MedallionPipeline:
                 active_flag=active_flag
             )
 
-            # -------- Bronze Artifact --------
+            # ======================================================
+            # 4️⃣ BRONZE
+            # ======================================================
             bronze_id = self.pipeline_manager.add_or_get_source(
                 source_name="Bronze",
                 source_type="folder",
                 connection_text=f"artifacts/bronze/{table_name}"
             )
 
-            # Bronze Task
             task_name = f"ingesting {table_name} to bronze"
+
             run_id = self.pipeline_manager.start_task(
                 source_id=data_source_id,
                 target_id=bronze_id,
@@ -67,14 +96,18 @@ class MedallionPipeline:
 
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(**db_query)
+
             elif source_type == "excel" and file_path:
                 bronze_df, _ = self.bronze.ingest_excel(file_path, table_name)
+
             else:
-                raise ValueError("Invalid source")
+                raise ValueError("Invalid source configuration")
 
             self.pipeline_manager.complete_task(run_id)
 
-            # -------- Silver Artifact --------
+            # ======================================================
+            # 5️⃣ SILVER
+            # ======================================================
             silver_id = self.pipeline_manager.add_or_get_source(
                 source_name="Silver",
                 source_type="folder",
@@ -82,6 +115,7 @@ class MedallionPipeline:
             )
 
             task_name = f"bronze to silver {table_name}"
+
             run_id = self.pipeline_manager.start_task(
                 source_id=bronze_id,
                 target_id=silver_id,
@@ -95,13 +129,17 @@ class MedallionPipeline:
                 table_name=table_name,
                 source_file=file_path
             )
+
             transformed_tables = self.silver_transformer.transform(
                 validated_tables=validated_tables,
                 table_name=table_name
             )
+
             self.pipeline_manager.complete_task(run_id)
 
-            # -------- Gold Artifact --------
+            # ======================================================
+            # 6️⃣ GOLD
+            # ======================================================
             gold_id = self.pipeline_manager.add_or_get_source(
                 source_name="Gold",
                 source_type="folder",
@@ -109,6 +147,7 @@ class MedallionPipeline:
             )
 
             task_name = f"silver to gold {table_name}"
+
             run_id = self.pipeline_manager.start_task(
                 source_id=silver_id,
                 target_id=gold_id,
@@ -116,10 +155,21 @@ class MedallionPipeline:
                 batch_id=batch_id,
                 task_name=task_name
             )
+
             for tname, df in transformed_tables.items():
                 self.gold.aggregate(df)
+
             self.pipeline_manager.complete_task(run_id)
 
+            logger.info(f"Pipeline completed successfully | table: {table_name}")
+
         except Exception as e:
-            self.pipeline_manager.fail_task(run_id, str(e))
-            raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
+
+            logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
+
+            if run_id:
+                self.pipeline_manager.fail_task(run_id, str(e))
+
+            raise PipelineManagerException(
+                f"Medallion pipeline execution failed: {str(e)}"
+            )
