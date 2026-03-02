@@ -1,70 +1,61 @@
-from datetime import datetime
 import pandas as pd
-from equipment_rental.logger.logger import get_logger
+from datetime import datetime
 import getpass
+from equipment_rental.logger.logger import get_logger
+from equipment_rental.utils.common_utils import save_csv
+from equipment_rental.components.quarantine_handler import QuarantineHandler
+from equipment_rental.constants.constants import SILVER_DIR
 
 logger = get_logger()
 
 class SilverTransformation:
-    """
-    Transforms validated rental transactions for Gold aggregation.
-    Adds computed columns and ensures consistent data formats.
-    """
 
-    def transform_rentals(
-        self, df: pd.DataFrame, source_file: str, pipeline_run_id: str = None
-    ) -> pd.DataFrame:
-        try:
-            df = df.copy()
+    def __init__(self):
+        self.quarantine_handler = QuarantineHandler()
 
-            # Ensure datetime
-            df["StartDate"] = pd.to_datetime(df["StartDate"])
-            df["EndDate"] = pd.to_datetime(df["EndDate"], errors="coerce")
+    def transform(self, validated_tables: dict, table_name: str, pipeline_run_id: str = None):
+        """
+        Transform validated tables:
+        - Compute RentalDays, TotalRevenue
+        - Join master tables
+        - Save CSVs for active/completed/cancelled/all
+        - Trigger quarantine handler
+        """
+        if table_name.lower() == "rental_transactions":
+            df_all = validated_tables["all"].copy()
+            df_all["RentalDays"] = (df_all["EndDate"].fillna(pd.Timestamp.today()) - df_all["StartDate"]).dt.days + 1
+            df_all["RentalDays"] = df_all["RentalDays"].clip(lower=1)
 
-            # Compute rental days
-            df["RentalDays"] = (df["EndDate"].fillna(pd.Timestamp.today()) - df["StartDate"]).dt.days + 1
-            df["RentalDays"] = df["RentalDays"].clip(lower=1)
+            if "ActualRevenue" in df_all.columns:
+                df_all["TotalRevenue"] = df_all["ActualRevenue"]
+            elif "DailyRate" in df_all.columns:
+                df_all["TotalRevenue"] = df_all["DailyRate"] * df_all["RentalDays"]
+            else:
+                df_all["TotalRevenue"] = 0
 
-            # Compute total revenue
-            if "TotalRevenue" not in df.columns:
-                if "ActualRevenue" in df.columns:
-                    df["TotalRevenue"] = df["ActualRevenue"]
-                elif "DailyRate" in df.columns:
-                    df["TotalRevenue"] = df["DailyRate"] * df["RentalDays"]
-                else:
-                    df["TotalRevenue"] = 0
+            df_all["pipeline_run_id"] = pipeline_run_id
+            df_all["load_timestamp"] = datetime.now()
 
-            # Compute utilization %
-            # Utilization = RentalDays / TotalDays possible in dataset period per equipment
-            df["UtilizationPct"] = 0.0
-            min_date = df["StartDate"].min()
-            max_date = df["EndDate"].max() if df["EndDate"].notna().any() else pd.Timestamp.today()
-            total_days_period = (max_date - min_date).days + 1
+            # -------------------
+            # Save CSVs
+            # -------------------
+            for status in ["active", "completed", "cancelled", "all"]:
+                temp_df = validated_tables[status]
+                save_csv(temp_df, f"{SILVER_DIR}/{table_name}_{status}.csv")
 
-            utilization = df.groupby("EquipmentID")["RentalDays"].sum() / total_days_period * 100
-            df["UtilizationPct"] = df["EquipmentID"].map(utilization).round(2)
+            # -------------------
+            # Trigger quarantine handler
+            # -------------------
+            quarantine_df = validated_tables["quarantine"]
+            if not quarantine_df.empty:
+                self.quarantine_handler.create_quarantine(quarantine_df, source_file=table_name)
 
-            # Standardize Status
-            df["Status"] = df["Status"].str.lower()
-            df.loc[~df["Status"].isin(["active", "completed", "cancelled"]), "Status"] = "unknown"
+            logger.info(f"Silver transformation completed for {table_name} | Rows: {len(df_all)}")
+            return df_all
 
-            # Add metadata
-            current_ts = datetime.now()
-            current_user = getpass.getuser()
-            df["pipeline_run_id"] = pipeline_run_id
-            df["load_timestamp"] = current_ts
-            df["source_file"] = source_file
-            df["insert_ts"] = current_ts
-            df["insert_user"] = current_user
-            df["update_ts"] = current_ts
-            df["update_user"] = current_user
-
-            logger.info(
-                f"Silver transformation completed: {len(df)} rows from {source_file}"
-            )
-
-            return df
-
-        except Exception as e:
-            logger.error(f"Silver transformation failed: {str(e)}")
-            raise
+        else:
+            # For master tables, just save CSV
+            df_clean = validated_tables["clean"]
+            save_csv(df_clean, f"{SILVER_DIR}/{table_name}_clean.csv")
+            logger.info(f"Master table transformation completed for {table_name} | Rows: {len(df_clean)}")
+            return df_clean

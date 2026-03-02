@@ -1,11 +1,18 @@
 # equipment_rental/pipeline/pipeline_manager.py
+import os
 import sqlite3
 from datetime import datetime
 from equipment_rental.logger.logger import get_logger
+from equipment_rental.constants.constants import PIPELINE_DIR  # import the pipeline directory
 
 logger = get_logger()
 
-DB_PATH = "artifacts/pipeline_manager.db"
+# Ensure the pipeline directory exists
+os.makedirs(PIPELINE_DIR, exist_ok=True)
+
+# Define DB path inside PIPELINE_DIR
+DB_PATH = os.path.join(PIPELINE_DIR, "pipeline_manager.db")
+
 
 class PipelineManager:
     def __init__(self, db_path=DB_PATH):
@@ -50,7 +57,7 @@ class PipelineManager:
             CREATE TABLE IF NOT EXISTS batch (
                 batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_id INTEGER,
-                batch_type TEXT,  -- full / incremental
+                batch_type TEXT,
                 run_date TEXT,
                 active_flag INTEGER DEFAULT 1,
                 insert_ts TEXT,
@@ -67,7 +74,7 @@ class PipelineManager:
                 batch_id INTEGER,
                 task_name TEXT,
                 run_id TEXT,
-                status TEXT,  -- running / success / failed
+                status TEXT,
                 start_ts TEXT,
                 end_ts TEXT,
                 error_msg TEXT,
@@ -79,18 +86,15 @@ class PipelineManager:
                 FOREIGN KEY(batch_id) REFERENCES batch(batch_id)
             )""")
             conn.commit()
-        logger.info("Pipeline Manager DB initialized")
+        logger.info(f"Pipeline Manager DB initialized at {self.db_path}")
 
     # -------------------------
     # Task/Run Management
     # -------------------------
     def start_task(self, source: str, batch_type: str, task_name: str, user: str = "system") -> str:
-        """Start a pipeline task, insert batch and task row, return run_id"""
         run_id = f"{task_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
             # Ensure source exists
             cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source,))
             row = cursor.fetchone()
@@ -118,12 +122,10 @@ class PipelineManager:
                 (batch_id, task_name, run_id, "running", datetime.now(), datetime.now(), user)
             )
             conn.commit()
-
         logger.info(f"Task started | run_id: {run_id}")
         return run_id
 
     def complete_task(self, run_id: str, user: str = "system"):
-        """Mark a task as completed"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -135,7 +137,6 @@ class PipelineManager:
         logger.info(f"Task completed | run_id: {run_id}")
 
     def fail_task(self, run_id: str, error_msg: str, user: str = "system"):
-        """Mark a task as failed"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
