@@ -1,4 +1,3 @@
-# equipment_rental/pipeline/pipeline_manager.py
 import os
 import sqlite3
 from datetime import datetime
@@ -7,7 +6,6 @@ from equipment_rental.constants.constants import PIPELINE_DIR
 
 logger = get_logger()
 
-# Ensure pipeline directory exists
 os.makedirs(PIPELINE_DIR, exist_ok=True)
 DB_PATH = os.path.join(PIPELINE_DIR, "pipeline_manager.db")
 
@@ -98,7 +96,6 @@ class PipelineManager:
 
     # ---------------- Source ----------------
     def add_or_get_source(self, source_name, source_type, connection_text, user="system"):
-        """Register or return source_id"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
@@ -113,16 +110,13 @@ class PipelineManager:
             return cursor.lastrowid
 
     # ---------------- Schedule ----------------
-    def add_schedule(self, source_id, schedule_name, frequency, run_ts=None, next_run_ts=None,
-                     timezone=None, priority_nbr=1, active_flag=1, user="system"):
+    def add_schedule(self, source_id, schedule_name, frequency, run_ts=None, next_run_ts=None, timezone=None, priority_nbr=1, active_flag=1, user="system"):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO schedule (source_id, schedule_name, frequency, run_ts, next_run_ts, timezone,
-                                      priority_nbr, active_flag, insert_ts, insert_user)
+                INSERT INTO schedule (source_id, schedule_name, frequency, run_ts, next_run_ts, timezone, priority_nbr, active_flag, insert_ts, insert_user)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (source_id, schedule_name, frequency, run_ts, next_run_ts, timezone,
-                  priority_nbr, active_flag, datetime.now(), user))
+            """, (source_id, schedule_name, frequency, run_ts, next_run_ts, timezone, priority_nbr, active_flag, datetime.now(), user))
             conn.commit()
             return cursor.lastrowid
 
@@ -131,26 +125,21 @@ class PipelineManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO batch (schedule_id, batch_name, batch_type, priority_nbr, active_flag, run_date,
-                                   insert_ts, insert_user)
+                INSERT INTO batch (schedule_id, batch_name, batch_type, priority_nbr, active_flag, run_date, insert_ts, insert_user)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (schedule_id, batch_name, batch_type, priority_nbr, active_flag, run_date or datetime.now().date(),
-                  datetime.now(), user))
+            """, (schedule_id, batch_name, batch_type, priority_nbr, active_flag, run_date or datetime.now().date(), datetime.now(), user))
             conn.commit()
             return cursor.lastrowid
 
-    # ---------------- Task / Run ----------------
+    # ---------------- Task ----------------
     def start_task(self, source_id, target_id, schedule_id, batch_id, task_name, user="system"):
-        """Start a new task/run"""
         run_id = f"{task_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO task (source_id, target_id, schedule_id, batch_id, task_name, run_id, status, start_ts,
-                                  insert_ts, insert_user)
+                INSERT INTO task (source_id, target_id, schedule_id, batch_id, task_name, run_id, status, start_ts, insert_ts, insert_user)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (source_id, target_id, schedule_id, batch_id, task_name, run_id, "running",
-                  datetime.now(), datetime.now(), user))
+            """, (source_id, target_id, schedule_id, batch_id, task_name, run_id, "running", datetime.now(), datetime.now(), user))
             conn.commit()
         logger.info(f"Task started | run_id: {run_id}")
         return run_id
