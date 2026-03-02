@@ -1,4 +1,3 @@
-# equipment_rental/pipeline/medallion_pipeline.py
 from datetime import datetime
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
@@ -32,19 +31,6 @@ class MedallionPipeline:
         rerun_id: str = None,
         schedule: str = None
     ):
-        """
-        Run Medallion pipeline for a single table/sheet.
-
-        Parameters:
-        - source_name: str
-        - source_type: str -> "excel" or "db"
-        - table_name: str
-        - file_path: str
-        - db_query: dict
-        - batch_type: str -> "full" or "incremental"
-        - rerun_id: str -> optional run_id to rerun
-        - schedule: str -> optional cron expression
-        """
         # Determine pipeline run ID
         run_id = rerun_id or self.pipeline_manager.start_task(
             source=source_name,
@@ -95,21 +81,11 @@ class MedallionPipeline:
                     logger.warning(f"{len(quarantine_df)} rows quarantined | table: {table_name}")
 
             # -------- Silver Transformation --------
-            if table_name.lower() == "rental_transactions":
-                transformed_tables = self.silver_transformer.transform(
-                    validated_tables=validated_tables,  # pass the dict from SilverValidation
-                    table_name=table_name,
-                    pipeline_run_id=run_id
-                )
-            else:
-                # Master tables
-                transformed_tables = {
-                    "all": self.silver_transformer.transform(
-                        validated_tables=validated_tables,
-                        table_name=table_name,
-                        pipeline_run_id=run_id
-                    )
-                }
+            transformed_tables = self.silver_transformer.transform(
+                validated_tables=validated_tables,  # pass dict
+                table_name=table_name,
+                pipeline_run_id=run_id
+            )
 
             logger.info(f"Silver transformation complete | table: {table_name}")
 
