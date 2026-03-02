@@ -34,7 +34,8 @@ class MedallionPipeline:
         run_id = rerun_id or self.pipeline_manager.start_task(
             source=source_name,
             batch_type=batch_type,
-            task_name=table_name
+            batch_name=table_name,
+            connection_text=file_path if source_type=="excel" else db_query.get("connection_str")
         )
         if rerun_id:
             logger.info(f"Rerunning failed pipeline | run_id: {run_id}")
