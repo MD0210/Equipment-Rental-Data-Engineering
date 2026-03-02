@@ -1,0 +1,15 @@
+# Data manipulation
+pandas>=2.1.0
+openpyxl>=3.1.0   # For reading/writing Excel files
+xlrd>=2.0.1       # If reading older Excel formats
+
+# Database connectivity
+sqlalchemy>=2.0.20
+psycopg2-binary>=2.9.9   # PostgreSQL driver (replace if using MySQL: mysqlclient or pymysql)
+
+# Logging & utils
+python-dotenv>=1.0.0     # Optional: if you use .env for configs
+pyyaml>=6.0               # For reading YAML config files
+
+# Optional for performance
+numpy>=1.26.0             # Needed by pandas
