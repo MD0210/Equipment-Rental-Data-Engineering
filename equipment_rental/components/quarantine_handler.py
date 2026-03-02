@@ -1,7 +1,7 @@
 # equipment_rental/components/quarantine_handler.py
 import os
 import pandas as pd
-from equipment_rental.constants import QUARANTINE_DIR
+from equipment_rental.constants.constants import QUARANTINE_DIR
 from equipment_rental.logger.logger import get_logger
 from datetime import datetime
 
