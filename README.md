@@ -262,7 +262,6 @@ Each execution tracks:
 ## ▶ How to Run
 
 ### 1️⃣ Clone the Repository
-
 ```bash
 git clone <your-repository-url>
 cd Equipment-Rental-Data-Engineering
