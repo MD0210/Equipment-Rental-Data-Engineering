@@ -52,10 +52,15 @@ class SilverValidation:
                 t2_start = group.loc[i + 1, "StartDate"]
                 if t1_end > t2_start:
                     # true overlap
-                    df.loc[group.loc[i, "index"], "quarantined"] = True
-                    df.loc[group.loc[i, "index"], "quarantine_reason"] = "Overlapping rental"
-                    df.loc[group.loc[i + 1, "index"], "quarantined"] = True
-                    df.loc[group.loc[i + 1, "index"], "quarantine_reason"] = "Overlapping rental"
+                    t1_idx = group.loc[i, "index"]
+                    t2_idx = group.loc[i + 1, "index"]
+                    t1_id = group.loc[i, "TransactionID"]
+                    t2_id = group.loc[i + 1, "TransactionID"]
+                    overlap_ids = f"{t1_id},{t2_id}"
+                    df.loc[t1_idx, "quarantined"] = True
+                    df.loc[t1_idx, "quarantine_reason"] = f"Overlapping rental with TransactionID(s): {overlap_ids}"
+                    df.loc[t2_idx, "quarantined"] = True
+                    df.loc[t2_idx, "quarantine_reason"] = f"Overlapping rental with TransactionID(s): {overlap_ids}"
 
         # -------------------
         # Status vs EndDate consistency
