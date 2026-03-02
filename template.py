@@ -23,6 +23,7 @@ list_of_files = [
     # ========================
     f"{project_name}/pipeline/__init__.py",
     f"{project_name}/pipeline/medallion_pipeline.py",
+    f"{project_name}/pipeline/pipeline_manager.py",   # Added
 
     # ========================
     # CONFIGURATION
@@ -58,6 +59,19 @@ list_of_files = [
     f"{project_name}/utils/common_utils.py",
 
     # ========================
+    # ARTIFACTS
+    # ========================
+    "artifacts/bronze/.keep",
+    "artifacts/silver/.keep",
+    "artifacts/silver/quarantine/.keep",
+    "artifacts/gold/.keep",
+
+    # ========================
+    # DATA
+    # ========================
+    "data/Equipment_Hire_Dataset.xlsx",  # Excel source file
+
+    # ========================
     # CONFIG FILES
     # ========================
     "config/config.yaml",
@@ -81,7 +95,11 @@ for filepath in list_of_files:
         os.makedirs(filedir, exist_ok=True)
 
     if (not os.path.exists(filepath)) or (os.path.getsize(filepath) == 0):
-        with open(filepath, "w") as f:
+        # For Excel, leave blank; for others, create empty
+        if filename.endswith(".xlsx") or filename.endswith(".keep"):
             pass
+        else:
+            with open(filepath, "w") as f:
+                pass
     else:
         print(f"File already exists at: {filepath}")
