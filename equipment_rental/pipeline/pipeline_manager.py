@@ -24,12 +24,12 @@ class PipelineManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # SOURCE table
+            # SOURCE table: connection_text instead of description
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS source (
                 source_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_name TEXT UNIQUE,
-                description TEXT,
+                connection_text TEXT,
                 active_flag INTEGER DEFAULT 1,
                 priority_nbr INTEGER DEFAULT 1,
                 insert_ts TEXT,
@@ -52,11 +52,12 @@ class PipelineManager:
                 FOREIGN KEY(source_id) REFERENCES source(source_id)
             )""")
 
-            # BATCH table
+            # BATCH table: added batch_name
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS batch (
                 batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_id INTEGER,
+                batch_name TEXT,
                 batch_type TEXT,
                 run_date TEXT,
                 active_flag INTEGER DEFAULT 1,
@@ -91,8 +92,15 @@ class PipelineManager:
     # -------------------------
     # Task/Run Management
     # -------------------------
-    def start_task(self, source: str, batch_type: str, task_name: str, user: str = "system") -> str:
-        run_id = f"{task_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    def start_task(self, source: str, batch_type: str, batch_name: str, connection_text: str = None, user: str = "system") -> str:
+        """
+        Start a task in the pipeline.
+        - source: source name
+        - batch_type: "full" or "incremental"
+        - batch_name: table name being processed
+        - connection_text: connection string, file path, or URL
+        """
+        run_id = f"{batch_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             # Ensure source exists
@@ -100,18 +108,22 @@ class PipelineManager:
             row = cursor.fetchone()
             if row:
                 source_id = row[0]
+                # Update connection_text if provided
+                if connection_text:
+                    cursor.execute("UPDATE source SET connection_text=?, update_ts=?, update_user=? WHERE source_id=?",
+                                   (connection_text, datetime.now(), user, source_id))
             else:
                 cursor.execute(
-                    "INSERT INTO source (source_name, insert_ts, insert_user) VALUES (?, ?, ?)",
-                    (source, datetime.now(), user)
+                    "INSERT INTO source (source_name, connection_text, insert_ts, insert_user) VALUES (?, ?, ?, ?)",
+                    (source, connection_text, datetime.now(), user)
                 )
                 source_id = cursor.lastrowid
 
             # Insert batch
             cursor.execute(
-                """INSERT INTO batch (source_id, batch_type, run_date, insert_ts, insert_user)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (source_id, batch_type, datetime.now().date(), datetime.now(), user)
+                """INSERT INTO batch (source_id, batch_name, batch_type, run_date, insert_ts, insert_user)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (source_id, batch_name, batch_type, datetime.now().date(), datetime.now(), user)
             )
             batch_id = cursor.lastrowid
 
@@ -119,10 +131,10 @@ class PipelineManager:
             cursor.execute(
                 """INSERT INTO task (batch_id, task_name, run_id, status, start_ts, insert_ts, insert_user)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (batch_id, task_name, run_id, "running", datetime.now(), datetime.now(), user)
+                (batch_id, batch_name, run_id, "running", datetime.now(), datetime.now(), user)
             )
             conn.commit()
-        logger.info(f"Task started | run_id: {run_id}")
+        logger.info(f"Task started | run_id: {run_id} | batch_name: {batch_name}")
         return run_id
 
     def complete_task(self, run_id: str, user: str = "system"):
