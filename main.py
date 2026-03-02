@@ -6,7 +6,7 @@ from equipment_rental.logger.logger import get_logger
 logger = get_logger()
 
 
-def run_pipeline(tables, source_type, source_file=None, db_file=None, batch_type="full", rerun_id=None, schedule=None):
+def run_pipeline(tables, source_type, source_file=None, db_file=None, batch_type="full", schedule=None):
     pipeline = MedallionPipeline()
 
     for table_name in tables:
@@ -26,7 +26,7 @@ def run_pipeline(tables, source_type, source_file=None, db_file=None, batch_type
             file_path=source_file,
             db_query=db_query,
             batch_type=batch_type,
-            rerun_id=rerun_id
+            schedule=schedule
         )
 
 
@@ -37,11 +37,9 @@ def main():
     parser.add_argument("--file", help="Excel file path (if source=excel)")
     parser.add_argument("--db_file", help="Database file path (if source=db)")
     parser.add_argument("--batch-type", default="full", choices=["full", "incremental"], help="Batch type")
-    parser.add_argument("--rerun-id", type=int, help="Optional rerun ID for failed pipeline")
     parser.add_argument("--schedule", type=str, help="Optional schedule identifier")
 
     args = parser.parse_args()
-
     tables = [t.strip() for t in args.tables.split(",")]
 
     try:
@@ -51,7 +49,6 @@ def main():
             source_file=args.file,
             db_file=args.db_file,
             batch_type=args.batch_type,
-            rerun_id=args.rerun_id,
             schedule=args.schedule
         )
     except Exception as e:
