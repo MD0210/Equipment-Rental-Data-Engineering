@@ -2,7 +2,6 @@ import logging
 import os
 from datetime import datetime
 
-
 def get_logger(name="equipment_rental"):
     logger = logging.getLogger(name)
 
@@ -17,9 +16,9 @@ def get_logger(name="equipment_rental"):
 
     log_file = os.path.join(log_dir, "pipeline.log")
 
-    # Format
+    # Formatter including filename and line number
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
     )
 
     # Console handler
