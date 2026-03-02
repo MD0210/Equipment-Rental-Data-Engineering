@@ -1,6 +1,6 @@
+# equipment_rental/components/silver_validation.py
 import pandas as pd
 from datetime import datetime
-import getpass
 from equipment_rental.logger.logger import get_logger
 
 logger = get_logger()
@@ -42,17 +42,19 @@ class SilverValidation:
         df["quarantine_reason"] = None
 
         # -------------------
-        # Overlap detection
+        # Overlap detection (fixed)
         # -------------------
         df = df.sort_values(["EquipmentID", "StartDate"])
         for equip_id, group in df.groupby("EquipmentID"):
             for i, t1 in enumerate(group.itertuples()):
+                t1_start = t1.StartDate
                 t1_end = t1.EndDate if pd.notna(t1.EndDate) else pd.Timestamp.max
                 for j in range(i + 1, len(group)):
                     t2 = group.iloc[j]
+                    t2_start = t2.StartDate
                     t2_end = t2.EndDate if pd.notna(t2.EndDate) else pd.Timestamp.max
-                    # Overlapping rentals
-                    if t1.StartDate <= t2_end and t2.StartDate <= t1_end:
+                    # True overlap: strictly less than
+                    if t1_start < t2_end and t2_start < t1_end:
                         df.loc[t1.Index, "quarantined"] = True
                         df.loc[t1.Index, "quarantine_reason"] = "Overlapping rental"
                         df.loc[t2.name, "quarantined"] = True
