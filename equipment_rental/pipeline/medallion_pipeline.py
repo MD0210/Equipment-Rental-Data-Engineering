@@ -95,24 +95,19 @@ class MedallionPipeline:
                     logger.warning(f"{len(quarantine_df)} rows quarantined | table: {table_name}")
 
             # -------- Silver Transformation --------
-            # For Rental_Transactions, transform each status table separately
             if table_name.lower() == "rental_transactions":
-                transformed_tables = {}
-                for status, df in validated_tables.items():
-                    transformed_tables[status] = self.silver_transformer.transform(
-                        df=df,
-                        source_file=source_file,
-                        pipeline_run_id=run_id,
-                        table_name=f"{table_name}_{status}"
-                    )
+                transformed_tables = self.silver_transformer.transform(
+                    validated_tables=validated_tables,  # pass the dict from SilverValidation
+                    table_name=table_name,
+                    pipeline_run_id=run_id
+                )
             else:
                 # Master tables
                 transformed_tables = {
                     "all": self.silver_transformer.transform(
-                        df=validated_tables.get("clean") or validated_tables.get("all"),
-                        source_file=source_file,
-                        pipeline_run_id=run_id,
-                        table_name=table_name
+                        validated_tables=validated_tables,
+                        table_name=table_name,
+                        pipeline_run_id=run_id
                     )
                 }
 
