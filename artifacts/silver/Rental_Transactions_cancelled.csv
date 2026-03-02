@@ -1,0 +1,4 @@
+TransactionID,EquipmentID,CustomerID,StartDate,EndDate,RentalDays,DailyRate,BaseRevenue,ActualRevenue,Status,load_timestamp,source_file,pipeline_run_id,quarantined,quarantine_reason
+TXN01058,EQ011,CUST001,2024-10-09,2024-10-11,2.0,350,700,700.0,cancelled,2026-03-02 23:16:44.361556,data/Equipment_Hire_Dataset.xlsx,,False,
+TXN01207,EQ011,CUST012,2025-01-21,2025-01-23,2.0,350,700,950.0,cancelled,2026-03-02 23:16:44.361556,data/Equipment_Hire_Dataset.xlsx,,False,
+TXN01171,EQ017,CUST004,2024-12-02,2024-12-30,28.0,180,5040,4788.0,cancelled,2026-03-02 23:16:44.361556,data/Equipment_Hire_Dataset.xlsx,,False,
