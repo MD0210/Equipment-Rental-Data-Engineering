@@ -18,10 +18,6 @@ QUARANTINE_DIR = os.path.join(SILVER_DIR, "quarantine")
 # PIPELINE MANAGER METADATA
 # ========================
 PIPELINE_DIR = os.path.join(ARTIFACT_DIR, "pipeline_manager")
-SOURCE_FILE = os.path.join(PIPELINE_DIR, "source.csv")
-SCHEDULE_FILE = os.path.join(PIPELINE_DIR, "schedule.csv")
-BATCH_FILE = os.path.join(PIPELINE_DIR, "batch.csv")
-TASK_FILE = os.path.join(PIPELINE_DIR, "task.csv")
 
 # ========================
 # ENSURE DIRECTORIES EXIST
