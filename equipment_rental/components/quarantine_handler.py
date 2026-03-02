@@ -1,37 +1,33 @@
+# equipment_rental/components/quarantine_handler.py
 import os
-from datetime import datetime
 import pandas as pd
+from equipment_rental.constant import QUARANTINE_DIR
 from equipment_rental.logger.logger import get_logger
-from equipment_rental.constants.constants import QUARANTINE_DIR
+from datetime import datetime
 
 logger = get_logger()
 
 class QuarantineHandler:
-    """
-    Handles quarantined rows from Silver validation.
-    Saves them to CSV for auditing or manual review.
-    """
-
     def __init__(self):
-        # Ensure quarantine directory exists
         os.makedirs(QUARANTINE_DIR, exist_ok=True)
 
-    def create_quarantine(self, df: pd.DataFrame, source_file: str = None):
+    def save_quarantine(self, df: pd.DataFrame, table_name: str, pipeline_run_id: str = None):
         """
-        Save quarantined DataFrame to CSV
+        Save the quarantine dataframe to CSV for review.
+        Adds metadata: pipeline_run_id and timestamp.
         """
         try:
-            if df.empty:
-                logger.info("No quarantined rows to handle.")
-                return
+            df = df.copy()
+            current_ts = datetime.now()
+            df["pipeline_run_id"] = pipeline_run_id
+            df["quarantine_ts"] = current_ts
 
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            filename = f"{source_file}_quarantine_{timestamp}.csv" if source_file else f"quarantine_{timestamp}.csv"
-            file_path = os.path.join(QUARANTINE_DIR, filename)
+            file_name = f"{table_name}_quarantine_{current_ts.strftime('%Y%m%d%H%M%S')}.csv"
+            file_path = os.path.join(QUARANTINE_DIR, file_name)
 
             df.to_csv(file_path, index=False)
-            logger.info(f"Quarantined rows saved: {len(df)} rows | Path: {file_path}")
+            logger.warning(f"Quarantine data saved | table: {table_name} | rows: {len(df)} | path: {file_path}")
 
         except Exception as e:
-            logger.error(f"Failed to save quarantined rows: {str(e)}")
+            logger.error(f"Failed to save quarantine for {table_name}: {str(e)}")
             raise
