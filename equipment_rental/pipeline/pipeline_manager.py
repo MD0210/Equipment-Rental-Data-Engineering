@@ -3,14 +3,12 @@ import os
 import sqlite3
 from datetime import datetime
 from equipment_rental.logger.logger import get_logger
-from equipment_rental.constants.constants import PIPELINE_DIR  # import the pipeline directory
+from equipment_rental.constants.constants import PIPELINE_DIR
 
 logger = get_logger()
 
-# Ensure the pipeline directory exists
+# Ensure pipeline directory exists
 os.makedirs(PIPELINE_DIR, exist_ok=True)
-
-# Define DB path inside PIPELINE_DIR
 DB_PATH = os.path.join(PIPELINE_DIR, "pipeline_manager.db")
 
 
@@ -20,58 +18,67 @@ class PipelineManager:
         self._init_db()
 
     def _init_db(self):
-        """Initialize tables if they don't exist"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
-            # SOURCE table: connection_text instead of description
+            # ---------------- Source ----------------
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS source (
                 source_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_name TEXT UNIQUE,
                 connection_text TEXT,
-                active_flag INTEGER DEFAULT 1,
-                priority_nbr INTEGER DEFAULT 1,
+                bronze_path TEXT,
+                silver_path TEXT,
+                gold_path TEXT,
+                quarantine_path TEXT,
                 insert_ts TEXT,
                 insert_user TEXT,
                 update_ts TEXT,
                 update_user TEXT
-            )""")
-
-            # SCHEDULE table
+            )
+            """)
+            # ---------------- Schedule ----------------
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS schedule (
                 schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_id INTEGER,
-                cron_expr TEXT,
+                schedule_name TEXT,
+                frequency TEXT,
+                run_ts TEXT,
+                next_run_ts TEXT,
+                timezone TEXT,
+                priority_nbr INTEGER DEFAULT 1,
                 active_flag INTEGER DEFAULT 1,
                 insert_ts TEXT,
                 insert_user TEXT,
                 update_ts TEXT,
                 update_user TEXT,
                 FOREIGN KEY(source_id) REFERENCES source(source_id)
-            )""")
-
-            # BATCH table: added batch_name
+            )
+            """)
+            # ---------------- Batch ----------------
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS batch (
                 batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_id INTEGER,
+                schedule_id INTEGER,
                 batch_name TEXT,
                 batch_type TEXT,
-                run_date TEXT,
+                priority_nbr INTEGER DEFAULT 1,
                 active_flag INTEGER DEFAULT 1,
+                run_date TEXT,
                 insert_ts TEXT,
                 insert_user TEXT,
                 update_ts TEXT,
                 update_user TEXT,
-                FOREIGN KEY(source_id) REFERENCES source(source_id)
-            )""")
-
-            # TASK table
+                FOREIGN KEY(schedule_id) REFERENCES schedule(schedule_id)
+            )
+            """)
+            # ---------------- Task ----------------
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS task (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER,
+                target_id INTEGER,
+                schedule_id INTEGER,
                 batch_id INTEGER,
                 task_name TEXT,
                 run_id TEXT,
@@ -79,82 +86,85 @@ class PipelineManager:
                 start_ts TEXT,
                 end_ts TEXT,
                 error_msg TEXT,
-                active_flag INTEGER DEFAULT 1,
                 insert_ts TEXT,
                 insert_user TEXT,
                 update_ts TEXT,
                 update_user TEXT,
+                FOREIGN KEY(source_id) REFERENCES source(source_id),
+                FOREIGN KEY(target_id) REFERENCES source(source_id),
+                FOREIGN KEY(schedule_id) REFERENCES schedule(schedule_id),
                 FOREIGN KEY(batch_id) REFERENCES batch(batch_id)
-            )""")
+            )
+            """)
             conn.commit()
         logger.info(f"Pipeline Manager DB initialized at {self.db_path}")
 
-    # -------------------------
-    # Task/Run Management
-    # -------------------------
-    def start_task(self, source: str, batch_type: str, batch_name: str, connection_text: str = None, user: str = "system") -> str:
-        """
-        Start a task in the pipeline.
-        - source: source name
-        - batch_type: "full" or "incremental"
-        - batch_name: table name being processed
-        - connection_text: connection string, file path, or URL
-        """
-        run_id = f"{batch_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    # ---------------- Source ----------------
+    def add_or_get_source(self, source_name, connection_text, bronze_path=None, silver_path=None, gold_path=None, quarantine_path=None, user="system"):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            # Ensure source exists
-            cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source,))
+            cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
             row = cursor.fetchone()
             if row:
-                source_id = row[0]
-                # Update connection_text if provided
-                if connection_text:
-                    cursor.execute("UPDATE source SET connection_text=?, update_ts=?, update_user=? WHERE source_id=?",
-                                   (connection_text, datetime.now(), user, source_id))
-            else:
-                cursor.execute(
-                    "INSERT INTO source (source_name, connection_text, insert_ts, insert_user) VALUES (?, ?, ?, ?)",
-                    (source, connection_text, datetime.now(), user)
-                )
-                source_id = cursor.lastrowid
-
-            # Insert batch
-            cursor.execute(
-                """INSERT INTO batch (source_id, batch_name, batch_type, run_date, insert_ts, insert_user)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (source_id, batch_name, batch_type, datetime.now().date(), datetime.now(), user)
-            )
-            batch_id = cursor.lastrowid
-
-            # Insert task
-            cursor.execute(
-                """INSERT INTO task (batch_id, task_name, run_id, status, start_ts, insert_ts, insert_user)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (batch_id, batch_name, run_id, "running", datetime.now(), datetime.now(), user)
-            )
+                return row[0]
+            cursor.execute("""
+                INSERT INTO source (source_name, connection_text, bronze_path, silver_path, gold_path, quarantine_path, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (source_name, connection_text, bronze_path, silver_path, gold_path, quarantine_path, datetime.now(), user))
             conn.commit()
-        logger.info(f"Task started | run_id: {run_id} | batch_name: {batch_name}")
-        return run_id
+            return cursor.lastrowid
 
-    def complete_task(self, run_id: str, user: str = "system"):
+    # ---------------- Schedule ----------------
+    def add_schedule(self, source_id, schedule_name, frequency, run_ts=None, next_run_ts=None, timezone=None, priority_nbr=1, active_flag=1, user="system"):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """UPDATE task SET status='success', end_ts=?, update_ts=?, update_user=?
-                   WHERE run_id=?""",
-                (datetime.now(), datetime.now(), user, run_id)
-            )
+            cursor.execute("""
+                INSERT INTO schedule (source_id, schedule_name, frequency, run_ts, next_run_ts, timezone, priority_nbr, active_flag, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (source_id, schedule_name, frequency, run_ts, next_run_ts, timezone, priority_nbr, active_flag, datetime.now(), user))
+            conn.commit()
+            return cursor.lastrowid
+
+    # ---------------- Batch ----------------
+    def add_batch(self, schedule_id, batch_name, batch_type, priority_nbr=1, active_flag=1, run_date=None, user="system"):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO batch (schedule_id, batch_name, batch_type, priority_nbr, active_flag, run_date, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (schedule_id, batch_name, batch_type, priority_nbr, active_flag, run_date or datetime.now().date(), datetime.now(), user))
+            conn.commit()
+            return cursor.lastrowid
+
+    # ---------------- Task / Run ----------------
+    def start_task(self, source_id, target_id, schedule_id, batch_id, task_name, user="system"):
+        run_id = f"{task_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO task (source_id, target_id, schedule_id, batch_id, task_name, run_id, status, start_ts, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (source_id, target_id, schedule_id, batch_id, task_name, run_id, "running", datetime.now(), datetime.now(), user))
+            conn.commit()
+        logger.info(f"Task started | run_id: {run_id}")
+        return run_id
+
+    def complete_task(self, run_id, user="system"):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE task SET status='success', end_ts=?, update_ts=?, update_user=?
+                WHERE run_id=?
+            """, (datetime.now(), datetime.now(), user, run_id))
             conn.commit()
         logger.info(f"Task completed | run_id: {run_id}")
 
-    def fail_task(self, run_id: str, error_msg: str, user: str = "system"):
+    def fail_task(self, run_id, error_msg, user="system"):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """UPDATE task SET status='failed', end_ts=?, error_msg=?, update_ts=?, update_user=?
-                   WHERE run_id=?""",
-                (datetime.now(), error_msg, datetime.now(), user, run_id)
-            )
+            cursor.execute("""
+                UPDATE task SET status='failed', end_ts=?, error_msg=?, update_ts=?, update_user=?
+                WHERE run_id=?
+            """, (datetime.now(), error_msg, datetime.now(), user, run_id))
             conn.commit()
         logger.error(f"Task failed | run_id: {run_id} | error: {error_msg}")

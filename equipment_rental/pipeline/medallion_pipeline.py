@@ -1,3 +1,4 @@
+# equipment_rental/pipeline/medallion_pipeline.py
 from datetime import datetime
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
@@ -17,77 +18,100 @@ class MedallionPipeline:
         self.silver_validator = SilverValidation()
         self.silver_transformer = SilverTransformation()
         self.gold = GoldAggregation()
-        self.pipeline_manager = PipelineManager()
         self.quarantine_handler = QuarantineHandler()
+        self.pipeline_manager = PipelineManager()
 
-    def run(
-        self,
-        source_name: str,
-        source_type: str,
-        table_name: str,
-        file_path: str = None,
-        db_query: dict = None,
-        batch_type: str = "full",
-        rerun_id: str = None,
-        schedule: str = None
-    ):
-        run_id = rerun_id or self.pipeline_manager.start_task(
-            source=source_name,
-            batch_type=batch_type,
-            batch_name=table_name,
-            connection_text=file_path if source_type=="excel" else db_query.get("connection_str")
-        )
-        if rerun_id:
-            logger.info(f"Rerunning failed pipeline | run_id: {run_id}")
-
+    def run(self, source_name, source_type, table_name, file_path=None, db_query=None, batch_type="full", schedule_name=None, frequency=None):
+        """
+        Runs the full medallion pipeline with process-level task tracking.
+        Each process step is a separate task: data->bronze, bronze->silver, silver->gold
+        """
         try:
-            logger.info(f"Pipeline started | run_id: {run_id} | table: {table_name}")
+            logger.info(f"Pipeline started | table: {table_name}")
 
-            # -------- Bronze Ingestion --------
-            if source_type == "db" and db_query:
+            # ---------------- Source ----------------
+            connection_text = file_path if source_type=="excel" else db_query.get("connection_str", "")
+            source_id = self.pipeline_manager.add_or_get_source(
+                source_name=source_name,
+                connection_text=connection_text
+            )
+
+            # ---------------- Schedule ----------------
+            schedule_id = self.pipeline_manager.add_schedule(
+                source_id=source_id,
+                schedule_name=schedule_name or f"{table_name}_schedule",
+                frequency=frequency or "manual"
+            )
+
+            # ---------------- Batch ----------------
+            batch_id = self.pipeline_manager.add_batch(
+                schedule_id=schedule_id,
+                batch_name=table_name,
+                batch_type=batch_type
+            )
+
+            # ---------------- Step 1: Data -> Bronze ----------------
+            task_name = f"Data to Bronze {table_name}"
+            task_run_id = self.pipeline_manager.start_task(
+                source_id=source_id,
+                target_id=source_id,  # Bronze stored under same source_id for simplicity
+                schedule_id=schedule_id,
+                batch_id=batch_id,
+                task_name=task_name
+            )
+            # Bronze ingestion
+            if source_type == "excel":
+                bronze_df, source_file = self.bronze.ingest_excel(file_path=file_path, sheet_name=table_name)
+            else:
                 bronze_df, source_file = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
                     query=db_query["query"],
                     table_name=db_query["table_name"]
                 )
-            elif source_type == "excel" and file_path:
-                bronze_df, source_file = self.bronze.ingest_excel(
-                    file_path=file_path,
-                    sheet_name=table_name
-                )
-            else:
-                raise ValueError("Invalid source_type or missing file_path/db_query")
+            self.pipeline_manager.complete_task(task_run_id)
 
-            logger.info(f"Bronze ingestion complete | rows: {len(bronze_df)} | table: {table_name}")
-
-            # -------- Silver Validation --------
+            # ---------------- Step 2: Bronze -> Silver ----------------
+            task_name = f"Bronze to Silver {table_name}"
+            task_run_id = self.pipeline_manager.start_task(
+                source_id=source_id,
+                target_id=source_id,
+                schedule_id=schedule_id,
+                batch_id=batch_id,
+                task_name=task_name
+            )
             validated_tables = self.silver_validator.validate(
                 df=bronze_df,
                 table_name=table_name,
                 source_file=source_file,
-                pipeline_run_id=run_id
+                pipeline_run_id=task_run_id
             )
-            logger.info(f"Silver validation complete | table: {table_name}")
-
-            # -------- Silver Transformation --------
+            # Handle quarantine if needed
+            quarantine_df = validated_tables.get("quarantine")
+            if quarantine_df is not None and not quarantine_df.empty:
+                self.quarantine_handler.save_quarantine(quarantine_df, table_name=table_name, pipeline_run_id=task_run_id)
             transformed_tables = self.silver_transformer.transform(
                 validated_tables=validated_tables,
                 table_name=table_name,
-                pipeline_run_id=run_id
+                pipeline_run_id=task_run_id
             )
-            logger.info(f"Silver transformation complete | table: {table_name}")
+            self.pipeline_manager.complete_task(task_run_id)
 
-            # -------- Gold Aggregation --------
+            # ---------------- Step 3: Silver -> Gold ----------------
+            task_name = f"Silver to Gold {table_name}"
+            task_run_id = self.pipeline_manager.start_task(
+                source_id=source_id,
+                target_id=source_id,
+                schedule_id=schedule_id,
+                batch_id=batch_id,
+                task_name=task_name
+            )
             for tname, df in transformed_tables.items():
-                if df is not None and not df.empty:
-                    self.gold.aggregate(df)
-                    logger.info(f"Gold aggregation complete | table: {tname}")
+                self.gold.aggregate(df)
+            self.pipeline_manager.complete_task(task_run_id)
 
-            # -------- Complete Task --------
-            self.pipeline_manager.complete_task(run_id)
-            logger.info(f"Pipeline completed successfully | run_id: {run_id}")
+            logger.info(f"Pipeline completed successfully | table: {table_name}")
 
         except Exception as e:
-            self.pipeline_manager.fail_task(run_id, str(e))
-            logger.error(f"Pipeline failed | run_id: {run_id} | error: {str(e)}")
-            raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
+            self.pipeline_manager.fail_task(task_run_id, str(e))
+            logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
+            raise PipelineManagerException(f"Pipeline execution failed: {str(e)}")
