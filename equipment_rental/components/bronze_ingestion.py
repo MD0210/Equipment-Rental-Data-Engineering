@@ -1,4 +1,3 @@
-# equipment_rental/components/bronze_ingestion.py
 from datetime import datetime
 import os
 from equipment_rental.utils.common_utils import read_excel, read_csv, read_db_query, save_csv

@@ -1,4 +1,3 @@
-# equipment_rental/components/gold_aggregation.py
 from datetime import datetime
 import pandas as pd
 from equipment_rental.constants.constants import GOLD_DIR

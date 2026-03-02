@@ -1,4 +1,3 @@
-# equipment_rental/components/silver_transformation.py
 from datetime import datetime
 import pandas as pd
 from equipment_rental.logger.logger import get_logger

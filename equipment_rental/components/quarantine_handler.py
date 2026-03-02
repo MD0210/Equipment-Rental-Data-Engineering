@@ -1,4 +1,3 @@
-# equipment_rental/components/quarantine_handler.py
 from datetime import datetime
 import pandas as pd
 from equipment_rental.logger.logger import get_logger

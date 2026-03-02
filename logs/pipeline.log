@@ -1,0 +1,9 @@
+2026-03-02 18:19:32,449 - equipment_rental - INFO - Starting Excel pipeline...
+2026-03-02 18:19:32,449 - equipment_rental - INFO - Pipeline Manager DB initialized
+2026-03-02 18:19:32,449 - equipment_rental - INFO - Task started | run_id: medallion_pipeline_20260302181932
+2026-03-02 18:19:32,449 - equipment_rental - INFO - Pipeline started | run_id: medallion_pipeline_20260302181932
+2026-03-02 18:19:32,658 - equipment_rental - ERROR - Failed to read Excel file 'data/Equipment_Hire_Dataset.xlsx', sheet 'Rental_Transaction': Worksheet named 'Rental_Transaction' not found
+2026-03-02 18:19:32,658 - equipment_rental - ERROR - Bronze ingestion failed for Excel sheet 'Rental_Transaction': Worksheet named 'Rental_Transaction' not found
+2026-03-02 18:19:32,669 - equipment_rental - ERROR - Task failed | run_id: medallion_pipeline_20260302181932 | error: Worksheet named 'Rental_Transaction' not found
+2026-03-02 18:19:32,669 - equipment_rental - ERROR - Pipeline failed | run_id: medallion_pipeline_20260302181932 | error: Worksheet named 'Rental_Transaction' not found
+2026-03-02 18:19:32,669 - equipment_rental - ERROR - Pipeline execution failed: Medallion pipeline execution failed: Worksheet named 'Rental_Transaction' not found

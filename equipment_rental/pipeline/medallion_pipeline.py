@@ -1,4 +1,3 @@
-# equipment_rental/pipeline/medallion_pipeline.py
 from datetime import datetime
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
@@ -10,6 +9,7 @@ from equipment_rental.exception.exception import PipelineManagerException
 
 logger = get_logger()
 
+
 class MedallionPipeline:
 
     def __init__(self):
@@ -19,56 +19,68 @@ class MedallionPipeline:
         self.gold = GoldAggregation()
         self.pipeline_manager = PipelineManager()
 
-    def run(self, source_name: str, file_path: str, sheet_name: str = None, db_query: dict = None):
+    def run(self, source_name: str, source_type: str, table_name: str,
+            file_path: str = None, db_query: dict = None, batch_type: str = "full", rerun_id: int = None):
         """
-        Run the full Medallion pipeline and track via PipelineManager.
-        
+        Run the full Medallion pipeline for a single table/sheet and track via PipelineManager.
+        Supports Excel and DB sources.
+
         Parameters:
         - source_name: str, name of the data source
-        - file_path: str, path to Excel file (if using Excel)
-        - sheet_name: str, optional, Excel sheet name
-        - db_query: dict, optional, {"connection_str":..., "query":..., "table_name":...} if source is DB
+        - source_type: str, "excel" or "db"
+        - table_name: str, Excel sheet name or DB table name
+        - file_path: str, path to Excel file (required if source_type=="excel")
+        - db_query: dict, optional, {"connection_str":..., "query":..., "table_name":...}
+        - batch_type: str, "full" or "incremental"
+        - rerun_id: int, optional run_id to rerun failed tasks
         """
-        pipeline_run_id = self.pipeline_manager.start_task(
-            source=source_name, batch_type="full", task_name="medallion_pipeline"
-        )
+
+        if rerun_id:
+            pipeline_run_id = rerun_id
+            logger.info(f"Rerunning failed pipeline tasks | run_id: {pipeline_run_id}")
+        else:
+            pipeline_run_id = self.pipeline_manager.start_task(
+                source=source_name, batch_type=batch_type, task_name=table_name
+            )
 
         try:
             logger.info(f"Pipeline started | run_id: {pipeline_run_id}")
 
             # -------- Bronze Ingestion --------
-            if db_query:
+            if source_type == "db" and db_query:
                 bronze_df, source_file = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
                     query=db_query["query"],
                     table_name=db_query["table_name"]
                 )
-            else:
+            elif source_type == "excel" and file_path:
                 bronze_df, source_file = self.bronze.ingest_excel(
                     file_path=file_path,
-                    sheet_name=sheet_name
+                    sheet_name=table_name
                 )
-            logger.info(f"Bronze ingestion complete | rows: {len(bronze_df)}")
+            else:
+                raise ValueError("Invalid source_type or missing file_path/db_query")
+
+            logger.info(f"Bronze ingestion complete | rows: {len(bronze_df)} | table: {table_name}")
 
             # -------- Silver Validation --------
             validated_tables = self.silver_validator.validate_rentals(bronze_df, source_file)
             validated_df = validated_tables["all"]
-            logger.info(f"Silver validation complete | rows: {len(validated_df)}")
+            logger.info(f"Silver validation complete | rows: {len(validated_df)} | table: {table_name}")
 
             # -------- Silver Transformation --------
             transformed_df = self.silver_transformer.transform_rentals(validated_df, source_file)
-            logger.info(f"Silver transformation complete | rows: {len(transformed_df)}")
+            logger.info(f"Silver transformation complete | rows: {len(transformed_df)} | table: {table_name}")
 
             # -------- Gold Aggregation --------
             self.gold.aggregate(transformed_df)
-            logger.info("Gold aggregation complete")
+            logger.info(f"Gold aggregation complete | table: {table_name}")
 
             # -------- Complete Task --------
             self.pipeline_manager.complete_task(pipeline_run_id)
             logger.info(f"Pipeline completed successfully | run_id: {pipeline_run_id}")
 
         except Exception as e:
-            # Log failure in PipelineManager and raise custom exception
             self.pipeline_manager.fail_task(pipeline_run_id, str(e))
             logger.error(f"Pipeline failed | run_id: {pipeline_run_id} | error: {str(e)}")
             raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
