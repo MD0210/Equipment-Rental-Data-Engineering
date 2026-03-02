@@ -36,7 +36,7 @@ Customer_Master:
       type: string
       required: false
 
-Rental_Transaction:
+Rental_Transactions:
   columns:
     - name: TransactionID
       type: string

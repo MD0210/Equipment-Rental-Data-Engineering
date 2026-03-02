@@ -8,14 +8,14 @@ sources:
     sheets:
       - Equipment_Master
       - Customer_Master
-      - Rental_Transaction
+      - Rental_Transactions
       - Date_Dimension
   database:
     connection_string: sqlite:///data/equipment_rental.db
     tables:
       - Equipment_Master
       - Customer_Master
-      - Rental_Transaction
+      - Rental_Transactions
       - Date_Dimension
 
 pipeline:
