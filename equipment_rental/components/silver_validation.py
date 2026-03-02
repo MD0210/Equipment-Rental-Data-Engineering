@@ -42,23 +42,20 @@ class SilverValidation:
         df["quarantine_reason"] = None
 
         # -------------------
-        # Overlap detection (fixed)
+        # Overlap detection 
         # -------------------
         df = df.sort_values(["EquipmentID", "StartDate"])
         for equip_id, group in df.groupby("EquipmentID"):
-            for i, t1 in enumerate(group.itertuples()):
-                t1_start = t1.StartDate
-                t1_end = t1.EndDate if pd.notna(t1.EndDate) else pd.Timestamp.max
-                for j in range(i + 1, len(group)):
-                    t2 = group.iloc[j]
-                    t2_start = t2.StartDate
-                    t2_end = t2.EndDate if pd.notna(t2.EndDate) else pd.Timestamp.max
-                    # True overlap: strictly less than
-                    if t1_start < t2_end and t2_start < t1_end:
-                        df.loc[t1.Index, "quarantined"] = True
-                        df.loc[t1.Index, "quarantine_reason"] = "Overlapping rental"
-                        df.loc[t2.name, "quarantined"] = True
-                        df.loc[t2.name, "quarantine_reason"] = "Overlapping rental"
+            group = group.reset_index()  # preserve original index
+            for i in range(len(group) - 1):
+                t1_end = group.loc[i, "EndDate"] if pd.notna(group.loc[i, "EndDate"]) else pd.Timestamp.max
+                t2_start = group.loc[i + 1, "StartDate"]
+                if t1_end > t2_start:
+                    # true overlap
+                    df.loc[group.loc[i, "index"], "quarantined"] = True
+                    df.loc[group.loc[i, "index"], "quarantine_reason"] = "Overlapping rental"
+                    df.loc[group.loc[i + 1, "index"], "quarantined"] = True
+                    df.loc[group.loc[i + 1, "index"], "quarantine_reason"] = "Overlapping rental"
 
         # -------------------
         # Status vs EndDate consistency
