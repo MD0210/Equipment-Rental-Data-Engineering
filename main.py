@@ -10,11 +10,13 @@ def run_pipeline_from_db():
     pm = PipelineManager()
     pipeline = MedallionPipeline()
 
-    # Fetch active schedules & batches
+    # -----------------------------
+    # Fetch all active schedules & batches
+    # -----------------------------
     with sqlite3.connect(pm.db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.frequency, s.run_ts, s.timezone,
+            SELECT s.schedule_id, s.frequency, s.run_ts, s.timezone,
                    src.source_name, src.source_type, src.connection_text,
                    b.batch_name
             FROM schedule s
@@ -28,48 +30,33 @@ def run_pipeline_from_db():
         logger.info("No active schedules found. Exiting.")
         return
 
-    # Organize rows into a dict: table_name -> row
-    schedule_map = {row[3]: row for row in rows}  # key = source_name
+    # Map: batch_name -> schedule row
+    schedule_map = {row[7]: row for row in rows}  # row[7] is batch_name
+
+    # -----------------------------
+    # Ensure master batches run first
+    # -----------------------------
+    master_batches = ["Customer_Master", "Equipment_Master"]
+    run_order = master_batches + [b for b in schedule_map.keys() if b not in master_batches]
 
     pipeline_run_id = pm.create_pipeline_run()
     completed = {}
 
     try:
-        # ---- Step 1: Process master tables first ----
-        for master_table in ["Customer_Master", "Equipment_Master"]:
-            if master_table not in schedule_map:
-                logger.warning(f"No schedule found for master table: {master_table}")
+        for batch_name in run_order:
+            if batch_name not in schedule_map:
+                logger.warning(f"No schedule found for batch: {batch_name}")
                 continue
 
-            row = schedule_map[master_table]
-            frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
+            schedule_id, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name_db = schedule_map[batch_name]
 
-            # Use batch_name only for Excel
-            table_name = batch_name if source_type.lower() == "excel" else source_name
+            # Determine table_name for the pipeline
+            if source_type.lower() == "excel":
+                table_name = batch_name  # must match sheet name
+            else:
+                table_name = source_name
 
-            for stage in ["bronze", "silver"]:
-                try:
-                    pipeline.run(
-                        source_name=source_name,
-                        source_type=source_type,
-                        table_name=table_name,
-                        stage=stage,
-                        file_path=connection_text,
-                        pipeline_run_id=pipeline_run_id
-                    )
-                    completed[(table_name, stage)] = "success"
-                    logger.info(f"Stage completed | table={table_name} | stage={stage}")
-                except Exception as e:
-                    completed[(table_name, stage)] = "failed"
-                    logger.error(f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}")
-                    break  # skip remaining stages for this table if failed
-
-        # ---- Step 2: Process Rental_Transactions ----
-        rental_table = "Rental_Transactions"
-        if rental_table in schedule_map:
-            row = schedule_map[rental_table]
-            frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
-            table_name = batch_name if source_type.lower() == "excel" else source_name
+            logger.info(f"Starting pipeline for table/source: {table_name}")
 
             for stage in ["bronze", "silver", "gold"]:
                 # Skip Silver if Bronze failed
@@ -92,6 +79,7 @@ def run_pipeline_from_db():
                     )
                     completed[(table_name, stage)] = "success"
                     logger.info(f"Stage completed | table={table_name} | stage={stage}")
+
                 except Exception as e:
                     completed[(table_name, stage)] = "failed"
                     logger.error(f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}")
