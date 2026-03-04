@@ -65,11 +65,12 @@ list_of_files = [
     "artifacts/silver/.keep",
     "artifacts/silver/quarantine/.keep",
     "artifacts/gold/.keep",
+    "artifacts/pipeline_manager/.keep",
 
     # ========================
     # DATA
     # ========================
-    "data/Equipment_Hire_Dataset.xlsx",  # Excel source file
+    "data/.keep",  # source file
 
     # ========================
     # CONFIG FILES
