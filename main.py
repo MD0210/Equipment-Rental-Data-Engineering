@@ -15,9 +15,9 @@ def run_pipeline_from_db():
     with sqlite3.connect(pm.db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.schedule_id, s.priority_nbr, s.frequency, s.run_ts, s.timezone,
+            SELECT s.schedule_id, s.priority_nbr AS schedule_priority, s.frequency, s.run_ts, s.timezone,
                    src.source_name, src.source_type, src.connection_text,
-                   b.batch_id, b.batch_name
+                   b.batch_id, b.batch_name, b.priority_nbr AS batch_priority
             FROM schedule s
             JOIN source src ON s.source_id = src.source_id
             JOIN batch b ON s.schedule_id = b.schedule_id
@@ -29,43 +29,41 @@ def run_pipeline_from_db():
         logger.info("No active schedules found. Exiting.")
         return
 
-    # Sort by priority_nbr ascending
-    rows_sorted = sorted(rows, key=lambda x: x[1])  # x[1] = priority_nbr
+    # Sort first by schedule priority, then by batch priority
+    rows_sorted = sorted(rows, key=lambda x: (x[1], x[10]))  # x[1]=schedule_priority, x[10]=batch_priority
 
     pipeline_run_id = pm.create_pipeline_run()
     completed = {}
 
     try:
         for row in rows_sorted:
-            schedule_id, priority_nbr, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_id, batch_name = row
+            schedule_id, schedule_prio, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_id, batch_name, batch_prio = row
 
-            # Determine table_name for pipeline
+            # Determine table_name
             if source_type.lower() == "excel":
-                table_name = batch_name  # must match sheet name
+                table_name = batch_name  # sheet_name must match batch name
             else:
                 table_name = source_name
 
-            # Normalize table name for CSV files (lowercase, underscores)
+            # Normalize table_name for CSVs
             table_name = table_name.strip().replace(" ", "_")
 
-            logger.info(f"Starting pipeline | table: {table_name} | batch_id: {batch_id} | priority: {priority_nbr}")
+            logger.info(f"Starting pipeline | table: {table_name} | batch_id: {batch_id} | schedule_prio: {schedule_prio} | batch_prio: {batch_prio}")
 
             for stage in ["bronze", "silver", "gold"]:
-                # Skip Silver if Bronze failed
+                # Skip stages if prior stage failed
                 if stage == "silver" and completed.get((batch_id, "bronze")) != "success":
                     logger.warning(f"Skipping Silver stage for batch_id={batch_id} because Bronze failed")
                     continue
-                # Skip Gold if Silver failed
                 if stage == "gold" and completed.get((batch_id, "silver")) != "success":
                     logger.warning(f"Skipping Gold stage for batch_id={batch_id} because Silver failed")
                     continue
 
                 try:
-                    # Pass schedule_id and batch_id to pipeline
                     pipeline.run(
                         source_name=source_name,
                         source_type=source_type,
-                        table_name=table_name,  # normalized
+                        table_name=table_name,
                         stage=stage,
                         file_path=connection_text,
                         pipeline_run_id=pipeline_run_id,
