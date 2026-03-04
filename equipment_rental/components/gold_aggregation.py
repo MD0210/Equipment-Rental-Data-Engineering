@@ -23,7 +23,7 @@ class GoldAggregation:
                   customer_df: pd.DataFrame,
                   pipeline_run_id: str = None):
         """
-        rental_df: rental_transaction_all.csv
+        rental_df: rental_transactions_all.csv
         equipment_df: equipment_master_clean.csv
         customer_df: customer_master_clean.csv
         """

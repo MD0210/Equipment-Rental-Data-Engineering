@@ -174,12 +174,12 @@ class MedallionPipeline:
             )
 
             # Extract required silver tables
-            rental_df = transformed_tables.get("rental_transaction_all")
+            rental_df = transformed_tables.get("rental_transactions_all")
             customer_df = transformed_tables.get("customer_master_clean")
             equipment_df = transformed_tables.get("equipment_master_clean")
 
             if rental_df is None:
-                raise ValueError("rental_transaction_all table not found in transformed_tables")
+                raise ValueError("rental_transactions_all table not found in transformed_tables")
 
             # Pass to Gold aggregation
             self.gold.aggregate(
