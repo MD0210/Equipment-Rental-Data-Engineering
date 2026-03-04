@@ -1,3 +1,4 @@
+# equipment_rental/components/gold_aggregation.py
 from datetime import datetime
 import pandas as pd
 from equipment_rental.constants.constants import GOLD_DIR
@@ -7,6 +8,7 @@ import os
 
 logger = get_logger()
 
+
 class GoldAggregation:
     """
     Aggregates rental transactions to produce high-level metrics:
@@ -14,10 +16,11 @@ class GoldAggregation:
     - Revenue by equipment, customer, and month
     """
 
-    def aggregate(self, df: pd.DataFrame):
+    def aggregate(self, df: pd.DataFrame, pipeline_run_id: str = None):
         """
         Performs aggregations on validated rental transactions.
         Saves aggregated results to GOLD_DIR as CSV files.
+        Includes pipeline_run_id in output.
         """
         try:
             df = df.copy()
@@ -36,9 +39,10 @@ class GoldAggregation:
 
             # Add metadata
             df["load_timestamp"] = datetime.now()
+            df["pipeline_run_id"] = pipeline_run_id
             df["source_file"] = df.get("source_file", "silver_validation")
 
-            # Equipment-level aggregation
+            # ----------------- Equipment-level aggregation -----------------
             utilization_list = []
             for equip_id, group in df.groupby("EquipmentID"):
                 start = group["StartDate"].min()
@@ -51,28 +55,31 @@ class GoldAggregation:
                     "total_rentals": group["TransactionID"].count(),
                     "total_revenue": group["Revenue"].sum(),
                     "avg_rental_days": round(group["RentalDays"].mean(), 2),
-                    "utilization_pct": round(utilization_pct, 2)
+                    "utilization_pct": round(utilization_pct, 2),
+                    "pipeline_run_id": pipeline_run_id
                 })
 
             equipment_agg = pd.DataFrame(utilization_list)
             save_csv(equipment_agg, os.path.join(GOLD_DIR, "equipment_aggregation.csv"))
 
-            # Customer-level aggregation
+            # ----------------- Customer-level aggregation -----------------
             customer_agg = df.groupby("CustomerID").agg(
                 total_rentals=pd.NamedAgg(column="TransactionID", aggfunc="count"),
                 total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum"),
             ).reset_index()
+            customer_agg["pipeline_run_id"] = pipeline_run_id
             save_csv(customer_agg, os.path.join(GOLD_DIR, "customer_aggregation.csv"))
 
-            # Monthly revenue aggregation
+            # ----------------- Monthly revenue aggregation -----------------
             df["RentalMonth"] = df["StartDate"].dt.to_period("M")
             monthly_agg = df.groupby("RentalMonth").agg(
                 total_rentals=pd.NamedAgg(column="TransactionID", aggfunc="count"),
                 total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum"),
             ).reset_index()
+            monthly_agg["pipeline_run_id"] = pipeline_run_id
             save_csv(monthly_agg, os.path.join(GOLD_DIR, "monthly_aggregation.csv"))
 
-            logger.info("Gold aggregation with utilization completed successfully")
+            logger.info(f"Gold aggregation completed successfully | pipeline_run_id={pipeline_run_id}")
 
         except Exception as e:
             logger.error(f"Gold aggregation failed: {str(e)}")
