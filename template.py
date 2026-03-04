@@ -23,7 +23,7 @@ list_of_files = [
     # ========================
     f"{project_name}/pipeline/__init__.py",
     f"{project_name}/pipeline/medallion_pipeline.py",
-    f"{project_name}/pipeline/pipeline_manager.py",   # Added
+    f"{project_name}/pipeline/pipeline_manager.py",   
 
     # ========================
     # CONFIGURATION
@@ -81,6 +81,7 @@ list_of_files = [
     # APPLICATION ENTRY
     # ========================
     "main.py",
+    "pm_config.py"
     "requirements.txt",
     "Dockerfile",
     ".dockerignore",
