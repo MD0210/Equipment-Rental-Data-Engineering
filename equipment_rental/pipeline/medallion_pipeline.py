@@ -120,7 +120,7 @@ class MedallionPipeline:
 
                 for key, df in transformed.items():
                     if key not in allowed_keys:
-                        continue  # skip unwanted keys
+                        continue
                     save_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_{key}.csv")
                     df.to_csv(save_path, index=False)
 
@@ -128,8 +128,9 @@ class MedallionPipeline:
             # Gold Stage
             # --------------------
             elif stage == "gold":
+                gold_table_name = table_name  # <-- dynamic name for logging
                 task_id = self.pipeline_manager.start_task(
-                    self.silver_folder_id, self.gold_folder_id, "gold", "gold_aggregation", pipeline_run_id
+                    self.silver_folder_id, self.gold_folder_id, "gold", gold_table_name, pipeline_run_id
                 )
 
                 # Load required Silver CSVs
