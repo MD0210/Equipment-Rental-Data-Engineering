@@ -173,19 +173,19 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Extract required silver tables
-            rental_df = transformed_tables.get("rental_transactions_all")
-            customer_df = transformed_tables.get("customer_master_clean")
-            equipment_df = transformed_tables.get("equipment_master_clean")
+            # Map transformed tables safely
+            rental_df = transformed_tables.get("all")  # rental_transactions_all
+            customer_df = transformed_tables.get("customer_master_clean")  # customer_master_clean.csv
+            equipment_df = transformed_tables.get("equipment_master_clean")  # equipment_master_clean.csv
 
+            # Safety check
             if rental_df is None:
                 raise ValueError("rental_transactions_all table not found in transformed_tables")
 
-            # Pass to Gold aggregation
             self.gold.aggregate(
-                rental_df=transformed_tables["all"],
-                equipment_df=transformed_tables.get("equipment_master_clean"),
-                customer_df=transformed_tables.get("customer_master_clean"),
+                rental_df=rental_df,
+                customer_df=customer_df,
+                equipment_df=equipment_df,
                 pipeline_run_id=pipeline_run_id
             )
 
