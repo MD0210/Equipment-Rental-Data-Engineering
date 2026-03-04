@@ -37,6 +37,40 @@ class PipelineManager:
             """)
 
             cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schedule (
+                schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER,
+                schedule_name TEXT UNIQUE,
+                frequency TEXT,
+                run_ts TEXT,
+                next_run_ts TEXT,
+                timezone TEXT,
+                priority_nbr INTEGER,
+                active_flag INTEGER,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS batch (
+                batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schedule_id INTEGER,
+                batch_name TEXT,
+                batch_type TEXT,
+                priority_nbr INTEGER,
+                active_flag INTEGER,
+                run_date TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
+
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_run (
                 pipeline_run_id TEXT PRIMARY KEY,
                 start_ts TEXT,
