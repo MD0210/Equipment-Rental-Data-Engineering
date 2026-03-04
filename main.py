@@ -37,9 +37,9 @@ def run_pipeline_from_db():
 
             # Use batch_name as table_name only for Excel, otherwise use source_name
             if source_type.lower() == "excel":
-                table_name = batch_name
+                table_name = batch_name  # batch_name must exactly match source sheet name
             else:
-                table_name = source_name
+                table_name = source_name  # e.g., "Customer_Master", "Equipment_Master"
 
             logger.info(f"Starting pipeline for table/source: {table_name}")
 

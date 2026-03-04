@@ -112,16 +112,24 @@ class MedallionPipeline:
                 )
 
                 # Save only desired outputs
+                filename_map = {
+                    "Customer_Master": "customer_master",
+                    "Equipment_Master": "equipment_master",
+                    "Rental_Transactions": "rental_transactions"
+                }
+
                 allowed_keys = []
                 if table_name.lower() in ["customer_master", "equipment_master"]:
                     allowed_keys = ["clean"]
                 elif table_name.lower() == "rental_transactions":
-                    allowed_keys = ["all", "active", "completed", "cancelled"]  # exclude equipment_utilisation and quarantine
+                    allowed_keys = ["all", "active", "completed", "cancelled"]
+
+                save_name = filename_map.get(table_name, table_name.lower())
 
                 for key, df in transformed.items():
                     if key not in allowed_keys:
-                        continue
-                    save_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_{key}.csv")
+                        continue  # skip unwanted keys
+                    save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
                     df.to_csv(save_path, index=False)
 
             # --------------------
