@@ -16,18 +16,17 @@ def run_interactive_pipeline():
     schedule_name = input("Enter schedule name: ").strip()
     run_ts = input("Enter run timestamp (YYYY-MM-DD HH:MM:SS) or leave blank: ").strip() or None
     timezone = input("Enter timezone (e.g., UTC) or leave blank: ").strip() or None
-    frequency = input("Enter frequency (daily, weekly, manual) or leave blank: ").strip() or "manual"
+    frequency = input("Enter frequency (daily, weekly, monthly, manual) or leave blank: ").strip() or "manual"
     priority_nbr = int(input("Enter priority number (default 1): ").strip() or 1)
     active_flag = int(input("Enter active flag (1=active, 0=inactive): ").strip() or 1)
     batch_type = input("Enter batch type (full/incremental, default full): ").strip() or "full"
 
     pipeline = MedallionPipeline()
-    pm = PipelineManager()
 
     # ---------------------------------------------------
-    # 🔥 Generate ONE pipeline_run_id for entire batch
+    # ✅ Generate ONE pipeline_run_id for entire batch
     # ---------------------------------------------------
-    pipeline_run_id = pm.generate_pipeline_run_id()
+    pipeline_run_id = pipeline.pipeline_manager.create_pipeline_run()
 
     logger.info(f"Starting pipeline batch | pipeline_run_id={pipeline_run_id}")
 
@@ -46,7 +45,7 @@ def run_interactive_pipeline():
             priority_nbr=priority_nbr,
             active_flag=active_flag,
             batch_type=batch_type,
-            pipeline_run_id=pipeline_run_id   # 🔥 PASS IT HERE
+            pipeline_run_id=pipeline_run_id  # ✅ PASS IT HERE
         )
 
     logger.info(f"Pipeline batch completed | pipeline_run_id={pipeline_run_id}")
