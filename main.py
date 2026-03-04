@@ -1,8 +1,8 @@
-# main.py
 from equipment_rental.pipeline.pipeline_manager import PipelineManager
 from equipment_rental.pipeline.medallion_pipeline import MedallionPipeline
 from equipment_rental.logger.logger import get_logger
 import sqlite3
+from collections import defaultdict
 
 logger = get_logger()
 
@@ -29,29 +29,37 @@ def run_pipeline_from_db():
         logger.info("No active schedules found. Exiting.")
         return
 
-    # Sort first by schedule priority, then by batch priority
-    rows_sorted = sorted(rows, key=lambda x: (x[1], x[10]))  # x[1]=schedule_priority, x[10]=batch_priority
+    # Sort batches by schedule_priority then batch_priority
+    rows_sorted = sorted(rows, key=lambda x: (x[1], x[10]))
+
+    # Group rows by stage
+    stages = ["bronze", "silver", "gold"]
+    stage_batches = defaultdict(list)
+
+    for row in rows_sorted:
+        schedule_id, schedule_prio, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_id, batch_name, batch_prio = row
+
+        # Determine table_name
+        if source_type.lower() == "excel":
+            table_name = batch_name
+        else:
+            table_name = source_name
+        table_name = table_name.strip().replace(" ", "_")
+
+        stage_batches["bronze"].append((batch_id, table_name, source_name, source_type, connection_text, schedule_id))
+        stage_batches["silver"].append((batch_id, table_name, source_name, source_type, connection_text, schedule_id))
+        stage_batches["gold"].append((batch_id, table_name, source_name, source_type, connection_text, schedule_id))
 
     pipeline_run_id = pm.create_pipeline_run()
     completed = {}
 
     try:
-        for row in rows_sorted:
-            schedule_id, schedule_prio, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_id, batch_name, batch_prio = row
+        for stage in stages:
+            logger.info(f"=== Starting Stage: {stage.upper()} ===")
+            for batch_info in stage_batches[stage]:
+                batch_id, table_name, source_name, source_type, connection_text, schedule_id = batch_info
 
-            # Determine table_name
-            if source_type.lower() == "excel":
-                table_name = batch_name  # sheet_name must match batch name
-            else:
-                table_name = source_name
-
-            # Normalize table_name for CSVs
-            table_name = table_name.strip().replace(" ", "_")
-
-            logger.info(f"Starting pipeline | table: {table_name} | batch_id: {batch_id} | schedule_prio: {schedule_prio} | batch_prio: {batch_prio}")
-
-            for stage in ["bronze", "silver", "gold"]:
-                # Skip stages if prior stage failed
+                # Skip if previous stage failed
                 if stage == "silver" and completed.get((batch_id, "bronze")) != "success":
                     logger.warning(f"Skipping Silver stage for batch_id={batch_id} because Bronze failed")
                     continue

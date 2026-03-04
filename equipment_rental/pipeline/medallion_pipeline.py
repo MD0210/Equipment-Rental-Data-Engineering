@@ -182,7 +182,14 @@ class MedallionPipeline:
                     if not os.path.exists(path):
                         raise FileNotFoundError(f"Required Silver master file missing: {path}")
 
-                rental_df = pd.read_csv(os.path.join(SILVER_DIR, "rental_transactions_all.csv"))
+                # Merge all rental_transactions CSVs from Silver folder
+                rental_files = [f for f in os.listdir(SILVER_DIR) if f.startswith("rental_transactions") and f.endswith(".csv")]
+                if not rental_files:
+                    raise FileNotFoundError("No Silver rental_transactions CSVs found for Gold aggregation")
+
+                rental_dfs = [pd.read_csv(os.path.join(SILVER_DIR, f)) for f in rental_files]
+                rental_df = pd.concat(rental_dfs, ignore_index=True)
+
                 customer_df = pd.read_csv(os.path.join(SILVER_DIR, "customer_master_clean.csv"))
                 equipment_df = pd.read_csv(os.path.join(SILVER_DIR, "equipment_master_clean.csv"))
 
