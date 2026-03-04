@@ -38,7 +38,6 @@ class SilverValidation:
     # RENTAL TRANSACTIONS VALIDATION
     # ============================================================
     def _validate_rental_transactions(self, df, source_file, pipeline_run_id):
-
         required_cols = [
             "TransactionID", "EquipmentID", "CustomerID",
             "StartDate", "EndDate",
@@ -46,90 +45,64 @@ class SilverValidation:
             "ActualRevenue", "Status"
         ]
 
-        # -------------------------
-        # Schema Validation
-        # -------------------------
         for col in required_cols:
             if col not in df.columns:
                 raise ValueError(f"Missing required column: {col}")
 
         df = df.copy()
 
-        # -------------------------
-        # Standardise Data Types
-        # -------------------------
+        # Standardise types
         df["TransactionID"] = df["TransactionID"].astype(str)
         df["EquipmentID"] = df["EquipmentID"].astype(str)
         df["CustomerID"] = df["CustomerID"].astype(str)
-
         df["StartDate"] = pd.to_datetime(df["StartDate"], errors="coerce")
         df["EndDate"] = pd.to_datetime(df["EndDate"], errors="coerce")
-
         df["RentalDays"] = pd.to_numeric(df["RentalDays"], errors="coerce")
         df["DailyRate"] = pd.to_numeric(df["DailyRate"], errors="coerce")
         df["ActualRevenue"] = pd.to_numeric(df["ActualRevenue"], errors="coerce")
-
         df["Status"] = df["Status"].str.lower().fillna("active")
 
-        # -------------------------
         # Initialize quarantine columns
-        # -------------------------
-        df["quarantined"] = False
-        df["quarantine_reason"] = None
+        df["quarantined"] = 0  # 0 = no issues
+        df["quarantine_reason"] = ""
 
-        # ============================================================
-        # DATA QUALITY RULES
-        # ============================================================
+        # Helper function to increment quarantine
+        def quarantine(row, reason):
+            if row["quarantine_reason"]:
+                row["quarantine_reason"] += f", {reason}"
+                row["quarantined"] += 1
+            else:
+                row["quarantine_reason"] = reason
+                row["quarantined"] = 1
+            return row
 
         # 1️⃣ Critical Null Checks
-        critical_nulls = (
-            df["EquipmentID"].isna() |
-            df["CustomerID"].isna() |
-            df["StartDate"].isna()
-        )
-        df.loc[critical_nulls, ["quarantined", "quarantine_reason"]] = \
-            [True, "Missing critical field"]
+        mask = df["EquipmentID"].isna() | df["CustomerID"].isna() | df["StartDate"].isna()
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "Missing critical field"), axis=1)
 
         # 2️⃣ Duplicate TransactionID
-        duplicate_txn = df.duplicated(subset=["TransactionID"], keep=False)
-        df.loc[duplicate_txn, ["quarantined", "quarantine_reason"]] = \
-            [True, "Duplicate TransactionID"]
+        mask = df.duplicated(subset=["TransactionID"], keep=False)
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "Duplicate TransactionID"), axis=1)
 
         # 3️⃣ Invalid RentalDays
-        invalid_days = df["RentalDays"] <= 0
-        df.loc[invalid_days, ["quarantined", "quarantine_reason"]] = \
-            [True, "Invalid RentalDays (<=0)"]
+        mask = df["RentalDays"] <= 0
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "Invalid RentalDays (<=0)"), axis=1)
 
         # 4️⃣ Invalid DailyRate
-        invalid_rate = df["DailyRate"] <= 0
-        df.loc[invalid_rate, ["quarantined", "quarantine_reason"]] = \
-            [True, "Invalid DailyRate (<=0)"]
+        mask = df["DailyRate"] <= 0
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "Invalid DailyRate (<=0)"), axis=1)
 
         # 5️⃣ RentalDays mismatch with date difference
         date_diff = (df["EndDate"] - df["StartDate"]).dt.days
-        mismatch_days = (
-            df["EndDate"].notna() &
-            df["RentalDays"].notna() &
-            (date_diff != df["RentalDays"])
-        )
-        df.loc[mismatch_days, ["quarantined", "quarantine_reason"]] = \
-            [True, "RentalDays mismatch with date difference"]
+        mask = df["EndDate"].notna() & df["RentalDays"].notna() & (date_diff != df["RentalDays"])
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "RentalDays mismatch with date difference"), axis=1)
 
         # 6️⃣ Status vs EndDate consistency
-        active_but_has_end = (
-            (df["Status"] == "active") &
-            df["EndDate"].notna()
-        )
-        df.loc[active_but_has_end, ["quarantined", "quarantine_reason"]] = \
-            [True, "Active but has EndDate"]
+        mask = (df["Status"] == "active") & df["EndDate"].notna()
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "Active but has EndDate"), axis=1)
 
-        completed_but_no_end = (
-            (df["Status"] == "completed") &
-            df["EndDate"].isna()
-        )
-        df.loc[completed_but_no_end, ["quarantined", "quarantine_reason"]] = \
-            [True, "Completed but missing EndDate"]
-
+        mask = (df["Status"] == "completed") & df["EndDate"].isna()
+        df.loc[mask] = df.loc[mask].apply(lambda r: quarantine(r, "Completed but missing EndDate"), axis=1)
 
         # 7️⃣ Overlapping Rentals Detection
         for equip_id, group in df.groupby("EquipmentID"):
@@ -139,31 +112,46 @@ class SilverValidation:
                 t1_end = pd.to_datetime(group.loc[i, "EndDate"]).normalize() if pd.notna(group.loc[i, "EndDate"]) else pd.Timestamp.max
                 t2_start = pd.to_datetime(group.loc[i + 1, "StartDate"]).normalize()
 
-                if t1_end > t2_start:  # Only flag if strictly overlaps
+                if t1_end > t2_start:
                     t1_idx = group.loc[i, "index"]
                     t2_idx = group.loc[i + 1, "index"]
-
                     overlap_ids = f"{group.loc[i, 'TransactionID']},{group.loc[i + 1, 'TransactionID']}"
 
-                    df.loc[t1_idx, ["quarantined", "quarantine_reason"]] = [True, f"Overlapping rental with {overlap_ids}"]
-                    df.loc[t2_idx, ["quarantined", "quarantine_reason"]] = [True, f"Overlapping rental with {overlap_ids}"]
+                    df.loc[t1_idx] = df.loc[t1_idx].apply(lambda r: quarantine(r, f"Overlapping rental with {overlap_ids}"), axis=1)
+                    df.loc[t2_idx] = df.loc[t2_idx].apply(lambda r: quarantine(r, f"Overlapping rental with {overlap_ids}"), axis=1)
 
-
-        # ============================================================
-        # Metadata Enrichment
-        # ============================================================
+        # Metadata
         df["pipeline_run_id"] = pipeline_run_id
         df["load_timestamp"] = datetime.now()
         df["source_file"] = source_file
 
-        # ============================================================
-        # Split into Logical Outputs
-        # ============================================================
-        active_df = df[(df["Status"] == "active") & (~df["quarantined"])]
-        completed_df = df[(df["Status"] == "completed") & (~df["quarantined"])]
-        cancelled_df = df[(df["Status"] == "cancelled") & (~df["quarantined"])]
-        quarantine_df = df[df["quarantined"]]
+        # Split logical outputs
+        active_df = df[(df["Status"] == "active") & (df["quarantined"] == 0)]
+        completed_df = df[(df["Status"] == "completed") & (df["quarantined"] == 0)]
+        cancelled_df = df[(df["Status"] == "cancelled") & (df["quarantined"] == 0)]
+        quarantine_df = df[df["quarantined"] > 0]
         all_df = df.copy()
+
+        # Business Metrics – Equipment Utilisation
+        utilisation_df = completed_df.groupby("EquipmentID")["RentalDays"].sum().reset_index()
+        utilisation_df.rename(columns={"RentalDays": "TotalRentalDays"}, inplace=True)
+
+        logger.info(
+            f"Rental_Transactions validation completed | "
+            f"Total: {len(df)} | Active: {len(active_df)}, "
+            f"Completed: {len(completed_df)}, "
+            f"Cancelled: {len(cancelled_df)}, "
+            f"Quarantined: {len(quarantine_df)}"
+        )
+
+        return {
+            "active": active_df,
+            "completed": completed_df,
+            "cancelled": cancelled_df,
+            "quarantine": quarantine_df,
+            "all": all_df,
+            "equipment_utilisation": utilisation_df
+        }
 
         # ============================================================
         # Business Metrics – Equipment Utilisation
