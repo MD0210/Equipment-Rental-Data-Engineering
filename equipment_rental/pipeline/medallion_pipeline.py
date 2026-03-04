@@ -1,6 +1,7 @@
 # equipment_rental/pipeline/medallion_pipeline.py
 import os
 import pandas as pd
+from datetime import datetime
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
 from equipment_rental.components.silver_transformation import SilverTransformation
@@ -27,7 +28,7 @@ class MedallionPipeline:
         os.makedirs(SILVER_DIR, exist_ok=True)
         os.makedirs(GOLD_DIR, exist_ok=True)
 
-        # Pre-register folder sources
+        # Pre-register Bronze, Silver, Gold folder sources
         self.bronze_folder_id = self.pipeline_manager.add_or_get_source(
             source_name="Bronze", source_type="folder", connection_text=BRONZE_DIR
         )
@@ -95,10 +96,8 @@ class MedallionPipeline:
             # Silver Stage
             # --------------------
             elif stage == "silver":
+                # Silver stage source is the Bronze output of this batch
                 bronze_source_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
-                if not os.path.exists(bronze_source_path):
-                    raise FileNotFoundError(f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}")
-
                 bronze_source_id = self.pipeline_manager.add_or_get_source(
                     source_name=f"{table_name}_bronze",
                     source_type="folder",
@@ -113,6 +112,11 @@ class MedallionPipeline:
                     schedule_id=schedule_id,
                     batch_id=batch_id
                 )
+
+                if not os.path.exists(bronze_source_path):
+                    raise FileNotFoundError(
+                        f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}"
+                    )
 
                 bronze_df = pd.read_csv(bronze_source_path)
 
@@ -153,8 +157,9 @@ class MedallionPipeline:
             # Gold Stage
             # --------------------
             elif stage == "gold":
+                # Gold stage source is the Silver outputs of this batch
                 silver_source_id = self.pipeline_manager.add_or_get_source(
-                    source_name="Silver",
+                    source_name=f"{table_name}_silver",
                     source_type="folder",
                     connection_text=SILVER_DIR
                 )
@@ -168,19 +173,20 @@ class MedallionPipeline:
                     batch_id=batch_id
                 )
 
-                # Automatically detect all Silver master files
-                customer_files = [f for f in os.listdir(SILVER_DIR) if f.startswith("customer_master") and f.endswith(".csv")]
-                equipment_files = [f for f in os.listdir(SILVER_DIR) if f.startswith("equipment_master") and f.endswith(".csv")]
-                rental_files = [f for f in os.listdir(SILVER_DIR) if f.startswith("rental_transactions") and f.endswith(".csv")]
+                # Ensure master tables exist
+                required_masters = [
+                    os.path.join(SILVER_DIR, "customer_master_clean.csv"),
+                    os.path.join(SILVER_DIR, "equipment_master_clean.csv")
+                ]
+                for path in required_masters:
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(f"Required Silver master file missing: {path}")
 
-                if not customer_files or not equipment_files or not rental_files:
-                    raise FileNotFoundError("Required Silver master files missing in SILVER_DIR")
+                rental_df = pd.read_csv(os.path.join(SILVER_DIR, "rental_transactions_all.csv"))
+                customer_df = pd.read_csv(os.path.join(SILVER_DIR, "customer_master_clean.csv"))
+                equipment_df = pd.read_csv(os.path.join(SILVER_DIR, "equipment_master_clean.csv"))
 
-                # Load the first master files (can be extended to merge if multiple files exist)
-                customer_df = pd.read_csv(os.path.join(SILVER_DIR, customer_files[0]))
-                equipment_df = pd.read_csv(os.path.join(SILVER_DIR, equipment_files[0]))
-                rental_df = pd.read_csv(os.path.join(SILVER_DIR, rental_files[0]))
-
+                # Run Gold aggregation
                 self.gold.aggregate(
                     rental_df=rental_df,
                     customer_df=customer_df,
