@@ -10,6 +10,7 @@ from equipment_rental.pipeline.pipeline_manager import PipelineManager
 from equipment_rental.logger.logger import get_logger
 from equipment_rental.exception.exception import PipelineManagerException
 from equipment_rental.constants.constants import BRONZE_DIR, SILVER_DIR, GOLD_DIR
+from equipment_rental.utils.common_utils import save_csv
 
 logger = get_logger()
 
@@ -28,7 +29,7 @@ class MedallionPipeline:
         os.makedirs(SILVER_DIR, exist_ok=True)
         os.makedirs(GOLD_DIR, exist_ok=True)
 
-        # Pre-register Bronze, Silver, Gold folder sources to avoid duplicates
+        # Pre-register Bronze, Silver, Gold folder sources
         self.bronze_folder_id = self.pipeline_manager.add_or_get_source(
             source_name="Bronze",
             source_type="folder",
@@ -63,19 +64,24 @@ class MedallionPipeline:
             # Bronze Stage
             # --------------------
             if stage == "bronze":
-                # Register the actual source dataset
                 source_id = self.pipeline_manager.add_or_get_source(
                     source_name=source_name,
                     source_type=source_type,
                     connection_text=file_path or (db_query["connection_str"] if db_query else None)
                 )
-                task_id = self.pipeline_manager.start_task(source_id, self.bronze_folder_id, "bronze", table_name, pipeline_run_id)
+                task_id = self.pipeline_manager.start_task(
+                    source_id, self.bronze_folder_id, "bronze", table_name, pipeline_run_id
+                )
 
                 # Ingest data
                 if source_type == "db" and db_query:
-                    bronze_df, _ = self.bronze.ingest_db(db_query["connection_str"], db_query["query"], table_name, pipeline_run_id)
+                    bronze_df, _ = self.bronze.ingest_db(
+                        db_query["connection_str"], db_query["query"], table_name, pipeline_run_id
+                    )
                 elif source_type == "excel" and file_path:
-                    bronze_df, _ = self.bronze.ingest_excel(file_path, sheet_name=table_name, pipeline_run_id=pipeline_run_id)
+                    bronze_df, _ = self.bronze.ingest_excel(
+                        file_path, sheet_name=table_name, pipeline_run_id=pipeline_run_id
+                    )
                 elif source_type == "csv" and file_path:
                     bronze_df, _ = self.bronze.ingest_csv(file_path=file_path, pipeline_run_id=pipeline_run_id)
                 else:
@@ -88,20 +94,27 @@ class MedallionPipeline:
             # Silver Stage
             # --------------------
             elif stage == "silver":
-                task_id = self.pipeline_manager.start_task(self.bronze_folder_id, self.silver_folder_id, "silver", table_name, pipeline_run_id)
+                task_id = self.pipeline_manager.start_task(
+                    self.bronze_folder_id, self.silver_folder_id, "silver", table_name, pipeline_run_id
+                )
 
-                # Read Bronze CSV
                 bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
                 if not os.path.exists(bronze_path):
                     raise FileNotFoundError(f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}")
                 bronze_df = pd.read_csv(bronze_path)
 
                 # Validate & transform
-                validated = self.silver_validator.validate(bronze_df, table_name, source_file=file_path, pipeline_run_id=pipeline_run_id)
-                transformed = self.silver_transformer.transform(validated, table_name, pipeline_run_id=pipeline_run_id)
+                validated = self.silver_validator.validate(
+                    bronze_df, table_name, source_file=file_path, pipeline_run_id=pipeline_run_id
+                )
+                transformed = self.silver_transformer.transform(
+                    validated, table_name, pipeline_run_id=pipeline_run_id
+                )
 
-                # Save to SILVER_DIR
+                # Save only desired outputs
                 for key, df in transformed.items():
+                    if table_name.lower() in ["customer_master", "equipment_master"] and key != "clean":
+                        continue  # skip 'all' for master tables
                     save_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_{key}.csv")
                     df.to_csv(save_path, index=False)
 
