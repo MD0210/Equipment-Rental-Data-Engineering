@@ -41,7 +41,7 @@ def run_pipeline_from_db():
 
         try:
             tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
-
+            
             for table_name in tables:
                 logger.info(f"Running pipeline for table: {table_name}")
 
@@ -50,9 +50,6 @@ def run_pipeline_from_db():
                     source_type=source_type,
                     table_name=table_name,
                     file_path=connection_text,
-                    frequency=frequency,
-                    run_ts=run_ts,
-                    timezone=timezone,
                     pipeline_run_id=pipeline_run_id
                 )
 
