@@ -42,18 +42,18 @@ class MedallionPipeline:
         try:
             logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
-            # ======================================================
+            # =========================
             # 1️⃣ SOURCE
-            # ======================================================
+            # =========================
             data_source_id = self.pipeline_manager.add_or_get_source(
                 source_name=source_name,
                 source_type=source_type,
                 connection_text=file_path or (db_query["connection_str"] if db_query else None)
             )
 
-            # ======================================================
+            # =========================
             # 2️⃣ SCHEDULE
-            # ======================================================
+            # =========================
             schedule_id = self.pipeline_manager.add_or_get_schedule(
                 source_id=data_source_id,
                 schedule_name=schedule_name or f"manual_{table_name}",
@@ -64,9 +64,9 @@ class MedallionPipeline:
                 active_flag=active_flag
             )
 
-            # ======================================================
+            # =========================
             # 3️⃣ BATCH
-            # ======================================================
+            # =========================
             batch_id = self.pipeline_manager.add_batch(
                 schedule_id=schedule_id,
                 batch_name=table_name,
@@ -75,9 +75,9 @@ class MedallionPipeline:
                 active_flag=active_flag
             )
 
-            # ======================================================
-            # 4️⃣ BRONZE
-            # ======================================================
+            # =========================
+            # 4️⃣ BRONZE INGESTION
+            # =========================
             bronze_id = self.pipeline_manager.add_or_get_source(
                 source_name="Bronze",
                 source_type="folder",
@@ -118,9 +118,9 @@ class MedallionPipeline:
 
             self.pipeline_manager.complete_task(run_id)
 
-            # ======================================================
-            # 5️⃣ SILVER
-            # ======================================================
+            # =========================
+            # 5️⃣ SILVER VALIDATION & TRANSFORMATION
+            # =========================
             silver_id = self.pipeline_manager.add_or_get_source(
                 source_name="Silver",
                 source_type="folder",
@@ -154,9 +154,9 @@ class MedallionPipeline:
 
             self.pipeline_manager.complete_task(run_id)
 
-            # ======================================================
-            # 6️⃣ GOLD
-            # ======================================================
+            # =========================
+            # 6️⃣ GOLD AGGREGATION
+            # =========================
             gold_id = self.pipeline_manager.add_or_get_source(
                 source_name="Gold",
                 source_type="folder",
@@ -173,25 +173,15 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Initialize variables
-            rental_df = None
-            customer_df = None
-            equipment_df = None
+            # Extract required silver tables
+            rental_df = transformed_tables.get("rental_transaction_all")
+            customer_df = transformed_tables.get("customer_master_clean")
+            equipment_df = transformed_tables.get("equipment_master_clean")
 
-            # Map transformed tables
-            for tname, df in transformed_tables.items():
-                name = tname.lower()
-                if "rental_transactions" in name:
-                    rental_df = df
-                elif "customer_master" in name:
-                    customer_df = df
-                elif "equipment_master" in name:
-                    equipment_df = df
-
-            # Safety check before calling Gold aggregation
             if rental_df is None:
-                raise ValueError("rental_transactions_all table not found in transformed_tables")
+                raise ValueError("rental_transaction_all table not found in transformed_tables")
 
+            # Pass to Gold aggregation
             self.gold.aggregate(
                 rental_df=rental_df,
                 customer_df=customer_df,
