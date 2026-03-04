@@ -27,24 +27,19 @@ class MedallionPipeline:
         table_name,
         file_path=None,
         db_query=None,
-        batch_type="full",
         schedule_id=None,
-        batch_id=None,
-        frequency="manual",
-        run_ts=None,
-        timezone=None,
-        priority_nbr=1,
-        active_flag=1,
         pipeline_run_id=None
     ):
         """
         Runs the Medallion pipeline for a given table.
-        Tracks tasks by task_id, with gold aggregation for all tables.
+        Tracks tasks by task_id.
         """
         task_id = None
 
         try:
-            logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
+            logger.info(
+                f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}"
+            )
 
             # =========================
             # SOURCE
@@ -52,13 +47,14 @@ class MedallionPipeline:
             data_source_id = self.pipeline_manager.add_or_get_source(
                 source_name=source_name,
                 source_type=source_type,
-                connection_text=file_path or (db_query["connection_str"] if db_query else None)
+                connection_text=file_path or (
+                    db_query["connection_str"] if db_query else None
+                )
             )
 
             # =========================
             # BRONZE INGESTION
             # =========================
-            stage = "bronze"
             bronze_id = self.pipeline_manager.add_or_get_source(
                 source_name="Bronze",
                 source_type="folder",
@@ -69,8 +65,7 @@ class MedallionPipeline:
                 source_id=data_source_id,
                 target_id=bronze_id,
                 schedule_id=schedule_id,
-                batch_id=batch_id,
-                stage=stage,
+                stage="bronze",
                 table_name=table_name,
                 pipeline_run_id=pipeline_run_id
             )
@@ -102,7 +97,6 @@ class MedallionPipeline:
             # =========================
             # SILVER VALIDATION & TRANSFORMATION
             # =========================
-            stage = "silver"
             silver_id = self.pipeline_manager.add_or_get_source(
                 source_name="Silver",
                 source_type="folder",
@@ -113,8 +107,7 @@ class MedallionPipeline:
                 source_id=bronze_id,
                 target_id=silver_id,
                 schedule_id=schedule_id,
-                batch_id=batch_id,
-                stage=stage,
+                stage="silver",
                 table_name=table_name,
                 pipeline_run_id=pipeline_run_id
             )
@@ -147,7 +140,6 @@ class MedallionPipeline:
                 source_id=silver_id,
                 target_id=gold_id,
                 schedule_id=schedule_id,
-                batch_id=batch_id,
                 stage="gold",
                 table_name=table_name,
                 pipeline_run_id=pipeline_run_id
@@ -157,18 +149,23 @@ class MedallionPipeline:
             import pandas as pd
             from equipment_rental.constants.constants import SILVER_DIR
 
-            # Load transformed tables or fallback to SILVER_DIR CSVs
-            rental_df = transformed_tables.get("all") if table_name.lower() == "rental_transactions" else None
+            # Only rental_transactions has transactional data
+            rental_df = (
+                transformed_tables.get("all")
+                if table_name.lower() == "rental_transactions"
+                else None
+            )
+
             customer_df = transformed_tables.get("customer_master_clean")
             equipment_df = transformed_tables.get("equipment_master_clean")
 
+            # Fallback to saved silver CSVs if not available in memory
             if customer_df is None and os.path.exists(f"{SILVER_DIR}/customer_master_clean.csv"):
                 customer_df = pd.read_csv(f"{SILVER_DIR}/customer_master_clean.csv")
 
             if equipment_df is None and os.path.exists(f"{SILVER_DIR}/equipment_master_clean.csv"):
                 equipment_df = pd.read_csv(f"{SILVER_DIR}/equipment_master_clean.csv")
 
-            # Call the single aggregate method
             self.gold.aggregate(
                 rental_df=rental_df,
                 customer_df=customer_df,
@@ -177,10 +174,15 @@ class MedallionPipeline:
             )
 
             self.pipeline_manager.complete_task(task_id)
-            logger.info(f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}")
+
+            logger.info(
+                f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}"
+            )
 
         except Exception as e:
             logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
             if task_id:
                 self.pipeline_manager.fail_task(task_id, str(e))
-            raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
+            raise PipelineManagerException(
+                f"Medallion pipeline execution failed: {str(e)}"
+            )
