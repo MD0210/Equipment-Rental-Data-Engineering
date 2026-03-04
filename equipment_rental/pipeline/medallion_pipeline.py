@@ -173,16 +173,25 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Aggregate Gold
+            # Initialize variables
+            rental_df = None
+            customer_df = None
+            equipment_df = None
+
+            # Map transformed tables
             for tname, df in transformed_tables.items():
-                if tname.lower() == "rental_transactions_all":
+                name = tname.lower()
+                if "rental_transactions" in name:
                     rental_df = df
-                elif tname.lower() == "customer_master_clean":
+                elif "customer_master" in name:
                     customer_df = df
-                elif tname.lower() == "equipment_master_clean":
+                elif "equipment_master" in name:
                     equipment_df = df
 
-            # Call Gold aggregation with the exact DataFrames
+            # Safety check before calling Gold aggregation
+            if rental_df is None:
+                raise ValueError("rental_transactions_all table not found in transformed_tables")
+
             self.gold.aggregate(
                 rental_df=rental_df,
                 customer_df=customer_df,
