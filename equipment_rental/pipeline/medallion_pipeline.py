@@ -34,10 +34,10 @@ class MedallionPipeline:
         timezone=None,
         priority_nbr=1,
         active_flag=1,
-        pipeline_run_id=None   # ✅ Add pipeline_run_id here
+        pipeline_run_id=None
     ):
 
-        run_id = None  # Prevent UnboundLocalError
+        run_id = None
 
         try:
             logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
@@ -48,9 +48,7 @@ class MedallionPipeline:
             data_source_id = self.pipeline_manager.add_or_get_source(
                 source_name=source_name,
                 source_type=source_type,
-                connection_text=file_path or (
-                    db_query["connection_str"] if db_query else None
-                )
+                connection_text=file_path or (db_query["connection_str"] if db_query else None)
             )
 
             # ======================================================
@@ -93,10 +91,10 @@ class MedallionPipeline:
                 schedule_id=schedule_id,
                 batch_id=batch_id,
                 task_name=task_name,
-                pipeline_run_id=pipeline_run_id   # ✅ track pipeline_run_id
+                pipeline_run_id=pipeline_run_id
             )
 
-            # Ingest data to Bronze
+            # Ingest data
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
@@ -175,9 +173,13 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Aggregate Gold
-            for tname, df in transformed_tables.items():
-                self.gold.aggregate(df, pipeline_run_id=pipeline_run_id)
+            # Aggregate Gold using all three silver tables
+            self.gold.aggregate(
+                rental_df=transformed_tables.get("all"),                   # rental_transaction_all
+                customer_df=transformed_tables.get("customer_clean"),       # customer_master_clean
+                equipment_df=transformed_tables.get("equipment_clean"),     # equipment_master_clean
+                pipeline_run_id=pipeline_run_id
+            )
 
             self.pipeline_manager.complete_task(run_id)
 
