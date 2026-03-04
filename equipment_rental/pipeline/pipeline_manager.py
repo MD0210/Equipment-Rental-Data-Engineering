@@ -75,27 +75,27 @@ class PipelineManager:
             )
             """)
 
-            # TASK (ADDED pipeline_run_id)
+            # TASK (updated for stage tracking)
             cursor.execute("""
-            CREATE TABLE IF NOT EXISTS task (
-                task_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pipeline_run_id TEXT,
-                source_id INTEGER,
-                target_id INTEGER,
-                schedule_id INTEGER,
-                batch_id INTEGER,
-                task_name TEXT,
-                run_id TEXT,
-                status TEXT,
-                start_ts TEXT,
-                end_ts TEXT,
-                duration_sec REAL,
-                error_msg TEXT,
-                insert_ts TEXT,
-                insert_user TEXT,
-                update_ts TEXT,
-                update_user TEXT
-            )
+                CREATE TABLE IF NOT EXISTS task (
+                    task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pipeline_run_id TEXT,
+                    source_id INTEGER,
+                    target_id INTEGER,
+                    schedule_id INTEGER,
+                    batch_id INTEGER,
+                    table_name TEXT,
+                    stage TEXT,
+                    status TEXT,
+                    start_ts TEXT,
+                    end_ts TEXT,
+                    duration_sec REAL,
+                    error_msg TEXT,
+                    insert_ts TEXT,
+                    insert_user TEXT,
+                    update_ts TEXT,
+                    update_user TEXT
+                )
             """)
 
             conn.commit()
@@ -222,30 +222,29 @@ class PipelineManager:
     # TASK
     # ==========================================================
 
-    def start_task(self, pipeline_run_id,
-                   source_id, target_id,
-                   schedule_id, batch_id, task_name):
-
-        run_id = f"{task_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    def start_task(self, pipeline_run_id, source_id, target_id,
+                schedule_id, batch_id, table_name, stage):
+        """
+        Start a task for a specific table and stage.
+        """
+        run_id = f"{table_name}_{stage}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
             cursor.execute("""
                 INSERT INTO task (
                     pipeline_run_id,
                     source_id, target_id, schedule_id, batch_id,
-                    task_name, run_id, status,
+                    table_name, stage, status,
                     start_ts, insert_ts, insert_user
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 pipeline_run_id,
                 source_id, target_id, schedule_id, batch_id,
-                task_name, run_id, "running",
+                table_name, stage, "running",
                 datetime.now(), datetime.now(), "system"
             ))
-
             conn.commit()
 
         logger.info(f"Task started | pipeline_run_id={pipeline_run_id} | run_id={run_id}")

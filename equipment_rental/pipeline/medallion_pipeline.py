@@ -57,25 +57,26 @@ class MedallionPipeline:
             )
 
             # =========================
-            # BRONZE INGESTION
+            #  BRONZE INGESTION
             # =========================
+            stage = "bronze"
             bronze_id = self.pipeline_manager.add_or_get_source(
                 source_name="Bronze",
                 source_type="folder",
                 connection_text=f"artifacts/bronze/{table_name}"
             )
 
-            task_name = f"ingesting {table_name} to bronze"
             run_id = self.pipeline_manager.start_task(
                 source_id=data_source_id,
                 target_id=bronze_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=task_name,
+                table_name=table_name,
+                stage=stage,
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Ingest data
+            # Ingest data (db/excel/csv)
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
@@ -102,22 +103,24 @@ class MedallionPipeline:
             # =========================
             # SILVER VALIDATION & TRANSFORMATION
             # =========================
+            stage = "silver"
             silver_id = self.pipeline_manager.add_or_get_source(
                 source_name="Silver",
                 source_type="folder",
                 connection_text=f"artifacts/silver/{table_name}"
             )
 
-            task_name = f"bronze to silver {table_name}"
             run_id = self.pipeline_manager.start_task(
                 source_id=bronze_id,
                 target_id=silver_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=task_name,
+                table_name=table_name,
+                stage=stage,
                 pipeline_run_id=pipeline_run_id
             )
 
+            # validate + transform
             validated_tables = self.silver_validator.validate(
                 df=bronze_df,
                 table_name=table_name,
@@ -136,44 +139,29 @@ class MedallionPipeline:
             # =========================
             # GOLD AGGREGATION
             # =========================
+            stage = "gold"
             gold_id = self.pipeline_manager.add_or_get_source(
                 source_name="Gold",
                 source_type="folder",
                 connection_text=f"artifacts/gold/{table_name}"
             )
 
-            task_name = f"silver to gold {table_name}"
             run_id = self.pipeline_manager.start_task(
                 source_id=silver_id,
                 target_id=gold_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=task_name,
+                table_name=table_name,
+                stage=stage,
                 pipeline_run_id=pipeline_run_id
             )
 
+            # aggregation
             if table_name.lower() == "rental_transactions":
-                import os
-                import pandas as pd
-                from equipment_rental.constants.constants import SILVER_DIR
-
-                rental_df = transformed_tables.get("all")
-                if rental_df is None:
-                    raise ValueError("rental_transactions_all table not found")
-
-                customer_df = transformed_tables.get("customer_master_clean")
-                equipment_df = transformed_tables.get("equipment_master_clean")
-
-                if customer_df is None and os.path.exists(f"{SILVER_DIR}/customer_master_clean.csv"):
-                    customer_df = pd.read_csv(f"{SILVER_DIR}/customer_master_clean.csv")
-
-                if equipment_df is None and os.path.exists(f"{SILVER_DIR}/equipment_master_clean.csv"):
-                    equipment_df = pd.read_csv(f"{SILVER_DIR}/equipment_master_clean.csv")
-
                 self.gold.aggregate(
-                    rental_df=rental_df,
-                    customer_df=customer_df,
-                    equipment_df=equipment_df,
+                    rental_df=transformed_tables.get("all"),
+                    customer_df=transformed_tables.get("customer_master_clean"),
+                    equipment_df=transformed_tables.get("equipment_master_clean"),
                     pipeline_run_id=pipeline_run_id
                 )
 
