@@ -14,7 +14,7 @@ def run_pipeline_from_db():
     with sqlite3.connect(pm.db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.frequency, s.run_ts, s.timezone,
+            SELECT s.schedule_id, s.frequency, s.run_ts, s.timezone,
                    src.source_name, src.source_type, src.connection_text,
                    b.batch_name
             FROM schedule s
@@ -28,18 +28,32 @@ def run_pipeline_from_db():
         logger.info("No active schedules found. Exiting.")
         return
 
+    # Map batch_name -> schedule row for ordering
+    schedule_map = {row[7]: row for row in rows}  # row[7] = batch_name
+
+    # Ensure master tables run first
+    master_batches = ["Customer_Master", "Equipment_Master"]
+    run_order = master_batches + [b for b in schedule_map.keys() if b not in master_batches]
+
     pipeline_run_id = pm.create_pipeline_run()
     completed = {}
 
     try:
-        for row in rows:
-            frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
+        for batch_name in run_order:
+            if batch_name not in schedule_map:
+                logger.warning(f"No schedule found for batch: {batch_name}")
+                continue
 
-            # Use batch_name as table_name only for Excel, otherwise use source_name
+            schedule_id, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name_db = schedule_map[batch_name]
+
+            # Determine table_name for pipeline
             if source_type.lower() == "excel":
-                table_name = batch_name  # batch_name must exactly match source sheet name
+                table_name = batch_name  # must match sheet name
             else:
                 table_name = source_name  # e.g., "Customer_Master", "Equipment_Master"
+
+            # Normalize table name for CSV files (lowercase)
+            table_name = table_name.strip().replace(" ", "_")
 
             logger.info(f"Starting pipeline for table/source: {table_name}")
 
@@ -57,7 +71,7 @@ def run_pipeline_from_db():
                     pipeline.run(
                         source_name=source_name,
                         source_type=source_type,
-                        table_name=table_name,
+                        table_name=table_name,  # <-- now normalized
                         stage=stage,
                         file_path=connection_text,
                         pipeline_run_id=pipeline_run_id
