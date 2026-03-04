@@ -138,7 +138,6 @@ class MedallionPipeline:
 
             # =========================
             # GOLD AGGREGATION
-            # =========================
             stage = "gold"
             gold_id = self.pipeline_manager.add_or_get_source(
                 source_name="Gold",
