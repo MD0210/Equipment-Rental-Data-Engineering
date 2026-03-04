@@ -183,9 +183,9 @@ class MedallionPipeline:
 
             # Pass to Gold aggregation
             self.gold.aggregate(
-                rental_df=rental_df,
-                customer_df=customer_df,
-                equipment_df=equipment_df,
+                rental_df=transformed_tables["all"],
+                equipment_df=transformed_tables.get("equipment_master_clean"),
+                customer_df=transformed_tables.get("customer_master_clean"),
                 pipeline_run_id=pipeline_run_id
             )
 
