@@ -47,12 +47,14 @@ class MedallionPipeline:
         stage,
         file_path=None,
         db_query=None,
-        pipeline_run_id=None
+        pipeline_run_id=None,
+        schedule_id=None,
+        batch_id=None
     ):
         task_id = None
         try:
             logger.info(
-                f"Pipeline stage started | table: {table_name} | stage: {stage} | pipeline_run_id={pipeline_run_id}"
+                f"Pipeline stage started | table: {table_name} | stage: {stage} | pipeline_run_id={pipeline_run_id} | batch_id={batch_id}"
             )
 
             # --------------------
@@ -65,7 +67,12 @@ class MedallionPipeline:
                     connection_text=file_path or (db_query["connection_str"] if db_query else None)
                 )
                 task_id = self.pipeline_manager.start_task(
-                    source_id, self.bronze_folder_id, "bronze", table_name, pipeline_run_id
+                    source_id=source_id,
+                    target_id=self.bronze_folder_id,
+                    stage="bronze",
+                    pipeline_run_id=pipeline_run_id,
+                    schedule_id=schedule_id,
+                    batch_id=batch_id
                 )
 
                 # Ingest data
@@ -90,7 +97,12 @@ class MedallionPipeline:
             # --------------------
             elif stage == "silver":
                 task_id = self.pipeline_manager.start_task(
-                    self.bronze_folder_id, self.silver_folder_id, "silver", table_name, pipeline_run_id
+                    source_id=self.bronze_folder_id,
+                    target_id=self.silver_folder_id,
+                    stage="silver",
+                    pipeline_run_id=pipeline_run_id,
+                    schedule_id=schedule_id,
+                    batch_id=batch_id
                 )
 
                 bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
@@ -122,7 +134,7 @@ class MedallionPipeline:
                 if table_name.lower() in ["customer_master", "equipment_master"]:
                     allowed_keys = ["clean"]
                 elif table_name.lower() == "rental_transactions":
-                    allowed_keys = ["all", "active", "completed", "cancelled"]  # skip unwanted outputs
+                    allowed_keys = ["all", "active", "completed", "cancelled"]
 
                 # Save CSVs
                 for key, df in transformed.items():
@@ -138,7 +150,6 @@ class MedallionPipeline:
             # Gold Stage
             # --------------------
             elif stage == "gold":
-                # Ensure master tables exist before running Gold
                 required_masters = [
                     os.path.join(SILVER_DIR, "customer_master_clean.csv"),
                     os.path.join(SILVER_DIR, "equipment_master_clean.csv")
@@ -148,7 +159,12 @@ class MedallionPipeline:
                         raise FileNotFoundError(f"Required Silver master file missing: {path}")
 
                 task_id = self.pipeline_manager.start_task(
-                    self.silver_folder_id, self.gold_folder_id, "gold", table_name, pipeline_run_id
+                    source_id=self.silver_folder_id,
+                    target_id=self.gold_folder_id,
+                    stage="gold",
+                    pipeline_run_id=pipeline_run_id,
+                    schedule_id=schedule_id,
+                    batch_id=batch_id
                 )
 
                 # Load Silver CSVs
@@ -174,6 +190,6 @@ class MedallionPipeline:
             if task_id:
                 self.pipeline_manager.fail_task(task_id, str(e))
             logger.error(
-                f"Pipeline stage failed | table: {table_name} | stage: {stage} | error: {str(e)}"
+                f"Pipeline stage failed | table: {table_name} | stage: {stage} | batch_id={batch_id} | error: {str(e)}"
             )
             raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
