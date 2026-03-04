@@ -61,6 +61,7 @@ class PipelineManager:
             CREATE TABLE IF NOT EXISTS batch (
                 batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 schedule_id INTEGER,
+                batch_name TEXT,
                 batch_type TEXT,
                 priority_nbr INTEGER,
                 active_flag INTEGER,
