@@ -29,8 +29,9 @@ def run_pipeline_from_db():
         logger.info("No active schedules/batches found. Exiting.")
         return
 
-    # ONE pipeline_run_id for entire execution
     pipeline_run_id = pm.create_pipeline_run()
+
+    tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
 
     for row in rows:
         frequency, run_ts, timezone, \
@@ -39,47 +40,43 @@ def run_pipeline_from_db():
 
         logger.info(f"Running pipeline | source: {source_name} | batch: {batch_name}")
 
-        try:
-            tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
+        bronze_df = None
+        transformed_tables = None
 
+        for stage in ["bronze", "silver", "gold"]:
             for table_name in tables:
-                logger.info(f"Processing table: {table_name}")
-
-                # ---------- BRONZE ----------
-                bronze_df = pipeline.run(
-                    source_name=source_name,
-                    source_type=source_type,
-                    table_name=table_name,
-                    stage="bronze",
-                    file_path=connection_text,
-                    pipeline_run_id=pipeline_run_id
-                )
-
-                # ---------- SILVER ----------
-                transformed_tables = pipeline.run(
-                    source_name=source_name,
-                    source_type=source_type,
-                    table_name=table_name,
-                    stage="silver",
-                    file_path=connection_text,
-                    pipeline_run_id=pipeline_run_id
-                )
-
-                # ---------- GOLD ----------
-                pipeline.run(
-                    source_name=source_name,
-                    source_type=source_type,
-                    table_name=table_name,
-                    stage="gold",
-                    file_path=connection_text,
-                    pipeline_run_id=pipeline_run_id
-                )
-
-        except Exception as e:
-            logger.error(
-                f"Pipeline failed | source: {source_name} | batch: {batch_name} | error: {str(e)}"
-            )
-            continue
+                logger.info(f"Processing table: {table_name} | stage: {stage}")
+                try:
+                    if stage == "bronze":
+                        bronze_df = pipeline.run(
+                            source_name=source_name,
+                            source_type=source_type,
+                            table_name=table_name,
+                            stage=stage,
+                            file_path=connection_text,
+                            pipeline_run_id=pipeline_run_id
+                        )
+                    elif stage == "silver":
+                        transformed_tables = pipeline.run(
+                            source_name=source_name,
+                            source_type=source_type,
+                            table_name=table_name,
+                            stage=stage,
+                            file_path=connection_text,
+                            pipeline_run_id=pipeline_run_id
+                        )
+                    else:  # gold
+                        pipeline.run(
+                            source_name=source_name,
+                            source_type=source_type,
+                            table_name=table_name,
+                            stage=stage,
+                            file_path=connection_text,
+                            pipeline_run_id=pipeline_run_id
+                        )
+                except Exception as e:
+                    logger.error(f"Pipeline failed | source: {source_name} | batch: {batch_name} | table: {table_name} | stage: {stage} | error: {str(e)}")
+                    continue
 
     logger.info(f"All pipelines completed | pipeline_run_id={pipeline_run_id}")
 
