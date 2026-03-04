@@ -29,53 +29,89 @@ def run_pipeline_from_db():
         logger.info("No active schedules found. Exiting.")
         return
 
-    # Sort first by schedule priority, then by batch priority
+    # Sort by schedule priority, then batch priority
     rows_sorted = sorted(rows, key=lambda x: (x[1], x[10]))  # x[1]=schedule_priority, x[10]=batch_priority
 
     pipeline_run_id = pm.create_pipeline_run()
     completed = {}
 
     try:
+        # ----------------------
+        # Phase 1: Bronze
+        # ----------------------
         for row in rows_sorted:
             schedule_id, schedule_prio, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_id, batch_name, batch_prio = row
 
-            # Determine table_name
-            if source_type.lower() == "excel":
-                table_name = batch_name  # sheet_name must match batch name
-            else:
-                table_name = source_name
-
-            # Normalize table_name for CSVs
+            table_name = batch_name if source_type.lower() == "excel" else source_name
             table_name = table_name.strip().replace(" ", "_")
 
-            logger.info(f"Starting pipeline | table: {table_name} | batch_id: {batch_id} | schedule_prio: {schedule_prio} | batch_prio: {batch_prio}")
+            logger.info(f"[Bronze] Starting pipeline | table: {table_name} | batch_id: {batch_id}")
 
-            for stage in ["bronze", "silver", "gold"]:
-                # Skip stages if prior stage failed
-                if stage == "silver" and completed.get((batch_id, "bronze")) != "success":
-                    logger.warning(f"Skipping Silver stage for batch_id={batch_id} because Bronze failed")
-                    continue
-                if stage == "gold" and completed.get((batch_id, "silver")) != "success":
-                    logger.warning(f"Skipping Gold stage for batch_id={batch_id} because Silver failed")
-                    continue
+            try:
+                pipeline.run(
+                    source_name=source_name,
+                    source_type=source_type,
+                    table_name=table_name,
+                    stage="bronze",
+                    file_path=connection_text,
+                    pipeline_run_id=pipeline_run_id,
+                    schedule_id=schedule_id,
+                    batch_id=batch_id
+                )
+                completed[(batch_id, "bronze")] = "success"
+                logger.info(f"[Bronze] Stage completed | batch_id={batch_id}")
+            except Exception as e:
+                completed[(batch_id, "bronze")] = "failed"
+                logger.error(f"[Bronze] Stage failed | batch_id={batch_id} | error={str(e)}")
 
-                try:
-                    pipeline.run(
-                        source_name=source_name,
-                        source_type=source_type,
-                        table_name=table_name,
-                        stage=stage,
-                        file_path=connection_text,
-                        pipeline_run_id=pipeline_run_id,
-                        schedule_id=schedule_id,
-                        batch_id=batch_id
-                    )
-                    completed[(batch_id, stage)] = "success"
-                    logger.info(f"Stage completed | batch_id={batch_id} | stage={stage}")
+        # ----------------------
+        # Phase 2: Silver
+        # ----------------------
+        for row in rows_sorted:
+            schedule_id, schedule_prio, frequency, run_ts, timezone, source_name, source_type, connection_text, batch_id, batch_name, batch_prio = row
 
-                except Exception as e:
-                    completed[(batch_id, stage)] = "failed"
-                    logger.error(f"Pipeline stage failed | batch_id={batch_id} | stage={stage} | error={str(e)}")
+            # Skip Silver if Bronze failed
+            if completed.get((batch_id, "bronze")) != "success":
+                logger.warning(f"[Silver] Skipping batch_id={batch_id} because Bronze failed")
+                continue
+
+            table_name = batch_name if source_type.lower() == "excel" else source_name
+            table_name = table_name.strip().replace(" ", "_")
+
+            logger.info(f"[Silver] Starting pipeline | table: {table_name} | batch_id: {batch_id}")
+
+            try:
+                pipeline.run(
+                    source_name=source_name,
+                    source_type=source_type,
+                    table_name=table_name,
+                    stage="silver",
+                    file_path=connection_text,
+                    pipeline_run_id=pipeline_run_id,
+                    schedule_id=schedule_id,
+                    batch_id=batch_id
+                )
+                completed[(batch_id, "silver")] = "success"
+                logger.info(f"[Silver] Stage completed | batch_id={batch_id}")
+            except Exception as e:
+                completed[(batch_id, "silver")] = "failed"
+                logger.error(f"[Silver] Stage failed | batch_id={batch_id} | error={str(e)}")
+
+        # ----------------------
+        # Phase 3: Gold
+        # ----------------------
+        logger.info("[Gold] Starting pipeline for all batches")
+        try:
+            pipeline.run(
+                source_name="Gold",
+                source_type="folder",
+                table_name="rental_transactions",
+                stage="gold",
+                pipeline_run_id=pipeline_run_id
+            )
+            logger.info("[Gold] Stage completed successfully")
+        except Exception as e:
+            logger.error(f"[Gold] Stage failed | error={str(e)}")
 
         pm.complete_pipeline_run(pipeline_run_id)
         logger.info(f"Pipeline run completed | pipeline_run_id={pipeline_run_id}")
