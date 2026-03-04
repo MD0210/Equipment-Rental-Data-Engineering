@@ -9,7 +9,7 @@ from equipment_rental.logger.logger import get_logger
 from equipment_rental.exception.exception import PipelineManagerException
 import os
 import pandas as pd
-from equipment_rental.constants.constants import SILVER_DIR
+from equipment_rental.constants.constants import BRONZE_DIR, SILVER_DIR
 
 logger = get_logger()
 
@@ -22,6 +22,10 @@ class MedallionPipeline:
         self.silver_transformer = SilverTransformation()
         self.gold = GoldAggregation()
         self.pipeline_manager = PipelineManager()
+
+        # Ensure directories exist
+        os.makedirs(BRONZE_DIR, exist_ok=True)
+        os.makedirs(SILVER_DIR, exist_ok=True)
 
     def run(
         self,
@@ -80,10 +84,10 @@ class MedallionPipeline:
             # Silver Stage
             # --------------------
             elif stage == "silver":
-                # Check bronze exists
-                bronze_path = f"{SILVER_DIR}/{table_name}.csv"
+                # Corrected: read from Bronze, not Silver
+                bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
                 if not os.path.exists(bronze_path):
-                    raise ValueError("Bronze data not found for silver stage")
+                    raise ValueError(f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}")
 
                 target_id = self.pipeline_manager.add_or_get_source(
                     source_name="Silver",
@@ -95,6 +99,12 @@ class MedallionPipeline:
                 bronze_df = pd.read_csv(bronze_path)
                 validated = self.silver_validator.validate(bronze_df, table_name, source_file=file_path, pipeline_run_id=pipeline_run_id)
                 transformed = self.silver_transformer.transform(validated, table_name, pipeline_run_id=pipeline_run_id)
+
+                # Save transformed tables to SILVER_DIR
+                for key, df in transformed.items():
+                    save_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_{key}.csv")
+                    df.to_csv(save_path, index=False)
+
                 self.pipeline_manager.complete_task(task_id)
                 return transformed
 
@@ -110,14 +120,14 @@ class MedallionPipeline:
                 task_id = self.pipeline_manager.start_task(data_source_id, target_id, "gold", table_name, pipeline_run_id)
 
                 transformed_tables = {}
-                for f in ["rental_transactions_clean.csv","customer_master_clean.csv","equipment_master_clean.csv"]:
-                    path = f"{SILVER_DIR}/{f}"
+                for f in ["rental_transactions_all.csv","customer_master_clean.csv","equipment_master_clean.csv"]:
+                    path = os.path.join(SILVER_DIR, f)
                     if os.path.exists(path):
                         key = f.replace(".csv","")
                         transformed_tables[key] = pd.read_csv(path)
 
                 self.gold.aggregate(
-                    rental_df=transformed_tables.get("rental_transactions_clean") if table_name.lower()=="rental_transactions" else None,
+                    rental_df=transformed_tables.get("rental_transactions_all") if table_name.lower()=="rental_transactions" else None,
                     customer_df=transformed_tables.get("customer_master_clean"),
                     equipment_df=transformed_tables.get("equipment_master_clean"),
                     pipeline_run_id=pipeline_run_id
