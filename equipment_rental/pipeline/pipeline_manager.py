@@ -1,3 +1,4 @@
+# equipment_rental/pipeline/pipeline_manager.py
 import os
 import sqlite3
 from datetime import datetime
@@ -115,50 +116,29 @@ class PipelineManager:
     # ==========================================================
     # SOURCE
     # ==========================================================
-    def add_or_get_source(self, file_path):
-        """Return source_id, creating source if needed.
-        file_path: full path to source file
-        source_name = file name
-        source_type = file extension (.csv, .xlsx, etc.)
-        """
-        import os
-        source_name = os.path.basename(file_path)             # filename.ext
-        _, ext = os.path.splitext(source_name)               # '.csv', '.xlsx'
-        source_type = ext.lower().replace('.', '')           # 'csv', 'xlsx'
-
+    def add_or_get_source(self, source_name, source_type, connection_text):
+        """Return source_id, creating source if needed"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
             row = cursor.fetchone()
             if row:
                 return row[0]
-
             now = datetime.now()
             cursor.execute("""
                 INSERT INTO source (source_name, source_type, connection_text, insert_ts, insert_user)
                 VALUES (?, ?, ?, ?, ?)
-            """, (source_name, source_type, file_path, now, "system"))
+            """, (source_name, source_type, connection_text, now, "system"))
             conn.commit()
             return cursor.lastrowid
 
     # ==========================================================
     # TASKS
     # ==========================================================
-    def start_task(self, source_id, target_id, stage, pipeline_run_id):
-        """Start task using source_id, stage, pipeline_run_id.
-           table_name comes from source_name in source table.
-        """
+    def start_task(self, source_id, target_id, stage, table_name, pipeline_run_id):
+        start_ts = datetime.now()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            # get source_name for table_name
-            cursor.execute("SELECT source_name FROM source WHERE source_id=?", (source_id,))
-            row = cursor.fetchone()
-            if not row:
-                logger.error(f"No source found for source_id={source_id}")
-                return None
-            table_name = row[0]
-
-            start_ts = datetime.now()
             cursor.execute("""
                 INSERT INTO task (
                     pipeline_run_id, source_id, target_id, stage, table_name, status,
@@ -168,7 +148,6 @@ class PipelineManager:
                   start_ts, start_ts, "system"))
             conn.commit()
             task_id = cursor.lastrowid
-
         logger.info(f"Task started | pipeline_run_id={pipeline_run_id} | stage={stage} | table={table_name}")
         return task_id
 
