@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from equipment_rental.logger.logger import get_logger
 from equipment_rental.constants.constants import PIPELINE_DIR
 
@@ -73,7 +73,7 @@ class PipelineManager:
             )
             """)
 
-            # TASK
+            # TASK (no batch_id)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS task (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +81,6 @@ class PipelineManager:
                 source_id INTEGER,
                 target_id INTEGER,
                 schedule_id INTEGER,
-                batch_id INTEGER,
                 stage TEXT,
                 table_name TEXT,
                 status TEXT,
@@ -127,9 +126,9 @@ class PipelineManager:
             return cursor.lastrowid
 
     # ==========================================================
-    # TASK (simplified)
+    # TASK (simplified, no batch_id)
     # ==========================================================
-    def start_task(self, source_id, target_id, schedule_id, batch_id,
+    def start_task(self, source_id, target_id, schedule_id,
                    stage, table_name, pipeline_run_id):
         """Start a task for a given stage (bronze/silver/gold)."""
         start_ts = datetime.now()
@@ -137,11 +136,11 @@ class PipelineManager:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO task (
-                    pipeline_run_id, source_id, target_id, schedule_id, batch_id,
+                    pipeline_run_id, source_id, target_id, schedule_id,
                     stage, table_name, status, start_ts, insert_ts, insert_user
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (pipeline_run_id, source_id, target_id, schedule_id, batch_id,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (pipeline_run_id, source_id, target_id, schedule_id,
                   stage, table_name, "running", start_ts, start_ts, "system"))
             conn.commit()
             task_id = cursor.lastrowid
