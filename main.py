@@ -1,55 +1,81 @@
+# main.py
 from equipment_rental.pipeline.medallion_pipeline import MedallionPipeline
 from equipment_rental.pipeline.pipeline_manager import PipelineManager
 from equipment_rental.logger.logger import get_logger
+from datetime import datetime
 
 logger = get_logger()
 
 
-def run_interactive_pipeline():
+def run_pipeline_from_db():
+    pm = PipelineManager()
+    pm.init_db()  # ensure DB exists
 
-    tables_input = input("Enter tables (comma-separated): ").strip()
-    tables = [t.strip() for t in tables_input.split(",")]
+    # 1️⃣ Get all active pipeline configurations
+    active_batches = pm.conn.execute("""
+        SELECT b.id AS batch_id,
+               s.id AS schedule_id,
+               src.id AS source_id,
+               src.source_name,
+               src.source_type,
+               src.connection_text,
+               b.table_name,
+               s.schedule_name,
+               s.frequency,
+               s.timezone,
+               s.active_flag
+        FROM batches b
+        JOIN sources src ON b.source_id = src.id
+        JOIN schedules s ON b.schedule_id = s.id
+        WHERE s.active_flag = 1
+    """).fetchall()
 
-    source_name = input("Enter source name (e.g., Equipment_Hire_Dataset): ").strip()
-    source_type = input("Enter source type (excel/db/api): ").strip().lower()
-    file_path = input("Enter file path or connection string: ").strip()
-    schedule_name = input("Enter schedule name: ").strip()
-    run_ts = input("Enter run timestamp (YYYY-MM-DD HH:MM:SS) or leave blank: ").strip() or None
-    timezone = input("Enter timezone (e.g., UTC) or leave blank: ").strip() or None
-    frequency = input("Enter frequency (daily, weekly, monthly, manual) or leave blank: ").strip() or "manual"
-    priority_nbr = int(input("Enter priority number (default 1): ").strip() or 1)
-    active_flag = int(input("Enter active flag (1=active, 0=inactive): ").strip() or 1)
-    batch_type = input("Enter batch type (full/incremental, default full): ").strip() or "full"
+    if not active_batches:
+        logger.info("No active batches found in pipeline_manager.db")
+        return
 
+    # 2️⃣ Initialize Medallion pipeline
     pipeline = MedallionPipeline()
 
-    # ---------------------------------------------------
-    # ✅ Generate ONE pipeline_run_id for entire batch
-    # ---------------------------------------------------
-    pipeline_run_id = pipeline.pipeline_manager.create_pipeline_run()
+    # 3️⃣ Loop through each active batch
+    for batch in active_batches:
+        batch_id = batch["batch_id"]
+        schedule_id = batch["schedule_id"]
+        source_id = batch["source_id"]
+        source_name = batch["source_name"]
+        source_type = batch["source_type"]
+        file_path = batch["connection_text"]
+        table_name = batch["table_name"]
+        frequency = batch["frequency"]
+        timezone = batch["timezone"]
+        schedule_name = batch["schedule_name"]
 
-    logger.info(f"Starting pipeline batch | pipeline_run_id={pipeline_run_id}")
+        # Generate a single pipeline_run_id per batch execution
+        pipeline_run_id = pipeline.pipeline_manager.create_pipeline_run()
 
-    for table_name in tables:
-        logger.info(f"Running pipeline for table: {table_name}")
+        logger.info(f"Starting pipeline | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
-        pipeline.run(
-            source_name=source_name,
-            source_type=source_type,
-            table_name=table_name,
-            file_path=file_path,
-            schedule_name=schedule_name,
-            run_ts=run_ts,
-            timezone=timezone,
-            frequency=frequency,
-            priority_nbr=priority_nbr,
-            active_flag=active_flag,
-            batch_type=batch_type,
-            pipeline_run_id=pipeline_run_id  # ✅ PASS IT HERE
-        )
+        try:
+            pipeline.run(
+                source_name=source_name,
+                source_type=source_type,
+                table_name=table_name,
+                file_path=file_path,
+                schedule_name=schedule_name,
+                run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                timezone=timezone,
+                frequency=frequency,
+                priority_nbr=1,
+                active_flag=1,
+                batch_type="full",
+                pipeline_run_id=pipeline_run_id
+            )
 
-    logger.info(f"Pipeline batch completed | pipeline_run_id={pipeline_run_id}")
+            logger.info(f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}")
+
+        except Exception as e:
+            logger.error(f"Pipeline failed | table: {table_name} | pipeline_run_id={pipeline_run_id} | error: {e}")
 
 
 if __name__ == "__main__":
-    run_interactive_pipeline()
+    run_pipeline_from_db()
