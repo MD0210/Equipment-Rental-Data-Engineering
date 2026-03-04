@@ -39,13 +39,9 @@ class MedallionPipeline:
     ):
         """
         Runs the Medallion pipeline for a given table.
-        This version does NOT insert schedules or batches.
-        Assumes schedule_id and batch_id are already provided.
+        This version does NOT use run_id or task_name; tasks are tracked by task_id.
         """
-        run_id = None
-        bronze_id = None
-        silver_id = None
-        gold_id = None
+        task_id = None
 
         try:
             logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
@@ -60,7 +56,7 @@ class MedallionPipeline:
             )
 
             # =========================
-            # BRONZE INGESTION
+            #  BRONZE INGESTION
             # =========================
             stage = "bronze"
             bronze_id = self.pipeline_manager.add_or_get_source(
@@ -69,16 +65,17 @@ class MedallionPipeline:
                 connection_text=f"artifacts/bronze/{table_name}"
             )
 
-            run_id = self.pipeline_manager.start_task(
+            task_id = self.pipeline_manager.start_task(
                 source_id=data_source_id,
                 target_id=bronze_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=f"{table_name}_{stage}",
+                stage=stage,
+                table_name=table_name,
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Ingest data
+            # Ingest data (db/excel/csv)
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
@@ -100,7 +97,7 @@ class MedallionPipeline:
             else:
                 raise ValueError("Invalid source configuration")
 
-            self.pipeline_manager.complete_task(run_id)
+            self.pipeline_manager.complete_task(task_id)
 
             # =========================
             # SILVER VALIDATION & TRANSFORMATION
@@ -112,12 +109,13 @@ class MedallionPipeline:
                 connection_text=f"artifacts/silver/{table_name}"
             )
 
-            run_id = self.pipeline_manager.start_task(
+            task_id = self.pipeline_manager.start_task(
                 source_id=bronze_id,
                 target_id=silver_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=f"{table_name}_{stage}",
+                stage=stage,
+                table_name=table_name,
                 pipeline_run_id=pipeline_run_id
             )
 
@@ -134,7 +132,7 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            self.pipeline_manager.complete_task(run_id)
+            self.pipeline_manager.complete_task(task_id)
 
             # =========================
             # GOLD AGGREGATION
@@ -145,12 +143,13 @@ class MedallionPipeline:
                 connection_text=f"artifacts/gold/{table_name}"
             )
 
-            run_id = self.pipeline_manager.start_task(
+            task_id = self.pipeline_manager.start_task(
                 source_id=silver_id,
                 target_id=gold_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=f"{table_name}_{stage}",
+                stage=stage,
+                table_name=table_name,
                 pipeline_run_id=pipeline_run_id
             )
 
@@ -162,11 +161,11 @@ class MedallionPipeline:
                     pipeline_run_id=pipeline_run_id
                 )
 
-            self.pipeline_manager.complete_task(run_id)
+            self.pipeline_manager.complete_task(task_id)
             logger.info(f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
         except Exception as e:
             logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
-            if run_id:
-                self.pipeline_manager.fail_task(run_id, str(e))
+            if task_id:
+                self.pipeline_manager.fail_task(task_id, str(e))
             raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
