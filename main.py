@@ -1,10 +1,12 @@
 from equipment_rental.pipeline.medallion_pipeline import MedallionPipeline
+from equipment_rental.pipeline.pipeline_manager import PipelineManager
 from equipment_rental.logger.logger import get_logger
 
 logger = get_logger()
 
 
 def run_interactive_pipeline():
+
     tables_input = input("Enter tables (comma-separated): ").strip()
     tables = [t.strip() for t in tables_input.split(",")]
 
@@ -20,9 +22,18 @@ def run_interactive_pipeline():
     batch_type = input("Enter batch type (full/incremental, default full): ").strip() or "full"
 
     pipeline = MedallionPipeline()
+    pm = PipelineManager()
+
+    # ---------------------------------------------------
+    # 🔥 Generate ONE pipeline_run_id for entire batch
+    # ---------------------------------------------------
+    pipeline_run_id = pm.generate_pipeline_run_id()
+
+    logger.info(f"Starting pipeline batch | pipeline_run_id={pipeline_run_id}")
 
     for table_name in tables:
         logger.info(f"Running pipeline for table: {table_name}")
+
         pipeline.run(
             source_name=source_name,
             source_type=source_type,
@@ -34,8 +45,11 @@ def run_interactive_pipeline():
             frequency=frequency,
             priority_nbr=priority_nbr,
             active_flag=active_flag,
-            batch_type=batch_type
+            batch_type=batch_type,
+            pipeline_run_id=pipeline_run_id   # 🔥 PASS IT HERE
         )
+
+    logger.info(f"Pipeline batch completed | pipeline_run_id={pipeline_run_id}")
 
 
 if __name__ == "__main__":

@@ -35,10 +35,16 @@ class MedallionPipeline:
         active_flag=1
     ):
 
-        run_id = None  # ✅ Prevent UnboundLocalError
+        run_id = None
+        pipeline_run_id = None  # ✅ NEW
 
         try:
             logger.info(f"Pipeline started | table: {table_name}")
+
+            # ======================================================
+            # 0️⃣ CREATE PIPELINE RUN (ONE PER MEDALLION EXECUTION)
+            # ======================================================
+            pipeline_run_id = self.pipeline_manager.create_pipeline_run()
 
             # ======================================================
             # 1️⃣ SOURCE
@@ -52,7 +58,7 @@ class MedallionPipeline:
             )
 
             # ======================================================
-            # 2️⃣ SCHEDULE 
+            # 2️⃣ SCHEDULE
             # ======================================================
             schedule_id = self.pipeline_manager.add_or_get_schedule(
                 source_id=data_source_id,
@@ -65,7 +71,7 @@ class MedallionPipeline:
             )
 
             # ======================================================
-            # 3️⃣ BATCH 
+            # 3️⃣ BATCH
             # ======================================================
             batch_id = self.pipeline_manager.add_batch(
                 schedule_id=schedule_id,
@@ -87,6 +93,7 @@ class MedallionPipeline:
             task_name = f"ingesting {table_name} to bronze"
 
             run_id = self.pipeline_manager.start_task(
+                pipeline_run_id=pipeline_run_id,  # ✅ NEW
                 source_id=data_source_id,
                 target_id=bronze_id,
                 schedule_id=schedule_id,
@@ -117,6 +124,7 @@ class MedallionPipeline:
             task_name = f"bronze to silver {table_name}"
 
             run_id = self.pipeline_manager.start_task(
+                pipeline_run_id=pipeline_run_id,  # ✅ NEW
                 source_id=bronze_id,
                 target_id=silver_id,
                 schedule_id=schedule_id,
@@ -149,6 +157,7 @@ class MedallionPipeline:
             task_name = f"silver to gold {table_name}"
 
             run_id = self.pipeline_manager.start_task(
+                pipeline_run_id=pipeline_run_id,  # ✅ NEW
                 source_id=silver_id,
                 target_id=gold_id,
                 schedule_id=schedule_id,
@@ -161,11 +170,17 @@ class MedallionPipeline:
 
             self.pipeline_manager.complete_task(run_id)
 
-            logger.info(f"Pipeline completed successfully | table: {table_name}")
+            logger.info(
+                f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}"
+            )
+
+            return pipeline_run_id  # optional but recommended
 
         except Exception as e:
 
-            logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
+            logger.error(
+                f"Pipeline failed | table: {table_name} | error: {str(e)}"
+            )
 
             if run_id:
                 self.pipeline_manager.fail_task(run_id, str(e))
