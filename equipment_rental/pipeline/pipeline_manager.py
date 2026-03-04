@@ -37,32 +37,11 @@ class PipelineManager:
             """)
 
             cursor.execute("""
-            CREATE TABLE IF NOT EXISTS schedule (
-                schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_id INTEGER,
-                schedule_name TEXT UNIQUE,
-                frequency TEXT,
-                run_ts TEXT,
-                next_run_ts TEXT,
-                timezone TEXT,
-                priority_nbr INTEGER,
-                active_flag INTEGER,
-                insert_ts TEXT,
-                insert_user TEXT,
-                update_ts TEXT,
-                update_user TEXT
-            )
-            """)
-
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS batch (
-                batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                schedule_id INTEGER,
-                batch_name TEXT,
-                batch_type TEXT,
-                priority_nbr INTEGER,
-                active_flag INTEGER,
-                run_date TEXT,
+            CREATE TABLE IF NOT EXISTS pipeline_run (
+                pipeline_run_id TEXT PRIMARY KEY,
+                start_ts TEXT,
+                end_ts TEXT,
+                status TEXT,
                 insert_ts TEXT,
                 insert_user TEXT,
                 update_ts TEXT,
@@ -99,23 +78,57 @@ class PipelineManager:
     def create_pipeline_run(self):
         import uuid
         pipeline_run_id = str(uuid.uuid4())
-        logger.info(f"Pipeline run created: {pipeline_run_id}")
+        start_ts = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO pipeline_run (pipeline_run_id, start_ts, status, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?)
+            """, (pipeline_run_id, start_ts, "running", start_ts, "system"))
+            conn.commit()
+        logger.info(f"Pipeline run started: {pipeline_run_id}")
         return pipeline_run_id
+
+    def complete_pipeline_run(self, pipeline_run_id):
+        end_ts = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE pipeline_run
+                SET status='success', end_ts=?, update_ts=?, update_user=?
+                WHERE pipeline_run_id=?
+            """, (end_ts, datetime.now(), "system", pipeline_run_id))
+            conn.commit()
+        logger.info(f"Pipeline run completed: {pipeline_run_id}")
+
+    def fail_pipeline_run(self, pipeline_run_id):
+        end_ts = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE pipeline_run
+                SET status='failed', end_ts=?, update_ts=?, update_user=?
+                WHERE pipeline_run_id=?
+            """, (end_ts, datetime.now(), "system", pipeline_run_id))
+            conn.commit()
+        logger.error(f"Pipeline run failed: {pipeline_run_id}")
 
     # ==========================================================
     # SOURCE
     # ==========================================================
     def add_or_get_source(self, source_name, source_type, connection_text):
+        """Return source_id, creating source if needed"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
             row = cursor.fetchone()
             if row:
                 return row[0]
+            now = datetime.now()
             cursor.execute("""
                 INSERT INTO source (source_name, source_type, connection_text, insert_ts, insert_user)
                 VALUES (?, ?, ?, ?, ?)
-            """, (source_name, source_type, connection_text, datetime.now(), "system"))
+            """, (source_name, source_type, connection_text, now, "system"))
             conn.commit()
             return cursor.lastrowid
 
@@ -155,18 +168,7 @@ class PipelineManager:
                 WHERE task_id=?
             """, (end_dt, duration, datetime.now(), "system", task_id))
             conn.commit()
-        logger.info(f"Task completed | task_id={task_id} | duration={duration} sec")
-
-    def get_task_status(self, pipeline_run_id, stage, table_name):
-        """Return status if task exists, else None"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT status FROM task
-                WHERE pipeline_run_id=? AND stage=? AND table_name=?
-            """, (pipeline_run_id, stage, table_name))
-            row = cursor.fetchone()
-            return row[0] if row else None
+        logger.info(f"Task completed | task_id={task_id} | duration={duration:.3f} sec")
 
     def fail_task(self, task_id, error_msg):
         with sqlite3.connect(self.db_path) as conn:
@@ -181,7 +183,6 @@ class PipelineManager:
         logger.error(f"Task failed | task_id={task_id} | error={error_msg}")
 
     def get_failed_tasks(self, pipeline_run_id):
-        """Return list of (stage, table_name) tuples for failed tasks"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
