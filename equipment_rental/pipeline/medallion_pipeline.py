@@ -1,3 +1,4 @@
+# equipment_rental/pipeline/medallion_pipeline.py
 from datetime import datetime
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
@@ -32,19 +33,14 @@ class MedallionPipeline:
         run_ts=None,
         timezone=None,
         priority_nbr=1,
-        active_flag=1
+        active_flag=1,
+        pipeline_run_id=None   # ✅ Add pipeline_run_id here
     ):
 
-        run_id = None
-        pipeline_run_id = None  # ✅ NEW
+        run_id = None  # Prevent UnboundLocalError
 
         try:
-            logger.info(f"Pipeline started | table: {table_name}")
-
-            # ======================================================
-            # 0️⃣ CREATE PIPELINE RUN (ONE PER MEDALLION EXECUTION)
-            # ======================================================
-            pipeline_run_id = self.pipeline_manager.create_pipeline_run()
+            logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
             # ======================================================
             # 1️⃣ SOURCE
@@ -91,22 +87,34 @@ class MedallionPipeline:
             )
 
             task_name = f"ingesting {table_name} to bronze"
-
             run_id = self.pipeline_manager.start_task(
-                pipeline_run_id=pipeline_run_id,  # ✅ NEW
                 source_id=data_source_id,
                 target_id=bronze_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=task_name
+                task_name=task_name,
+                pipeline_run_id=pipeline_run_id   # ✅ track pipeline_run_id
             )
 
+            # Ingest data to Bronze
             if source_type == "db" and db_query:
-                bronze_df, _ = self.bronze.ingest_db(**db_query)
-
+                bronze_df, _ = self.bronze.ingest_db(
+                    connection_str=db_query["connection_str"],
+                    query=db_query["query"],
+                    table_name=table_name,
+                    pipeline_run_id=pipeline_run_id
+                )
             elif source_type == "excel" and file_path:
-                bronze_df, _ = self.bronze.ingest_excel(file_path, table_name)
-
+                bronze_df, _ = self.bronze.ingest_excel(
+                    file_path=file_path,
+                    sheet_name=table_name,
+                    pipeline_run_id=pipeline_run_id
+                )
+            elif source_type == "csv" and file_path:
+                bronze_df, _ = self.bronze.ingest_csv(
+                    file_path=file_path,
+                    pipeline_run_id=pipeline_run_id
+                )
             else:
                 raise ValueError("Invalid source configuration")
 
@@ -122,25 +130,28 @@ class MedallionPipeline:
             )
 
             task_name = f"bronze to silver {table_name}"
-
             run_id = self.pipeline_manager.start_task(
-                pipeline_run_id=pipeline_run_id,  # ✅ NEW
                 source_id=bronze_id,
                 target_id=silver_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=task_name
+                task_name=task_name,
+                pipeline_run_id=pipeline_run_id
             )
 
+            # Validate Bronze -> Silver
             validated_tables = self.silver_validator.validate(
                 df=bronze_df,
                 table_name=table_name,
-                source_file=file_path
+                source_file=file_path,
+                pipeline_run_id=pipeline_run_id
             )
 
+            # Transform Silver
             transformed_tables = self.silver_transformer.transform(
                 validated_tables=validated_tables,
-                table_name=table_name
+                table_name=table_name,
+                pipeline_run_id=pipeline_run_id
             )
 
             self.pipeline_manager.complete_task(run_id)
@@ -155,32 +166,25 @@ class MedallionPipeline:
             )
 
             task_name = f"silver to gold {table_name}"
-
             run_id = self.pipeline_manager.start_task(
-                pipeline_run_id=pipeline_run_id,  # ✅ NEW
                 source_id=silver_id,
                 target_id=gold_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=task_name
+                task_name=task_name,
+                pipeline_run_id=pipeline_run_id
             )
 
+            # Aggregate Gold
             for tname, df in transformed_tables.items():
-                self.gold.aggregate(df)
+                self.gold.aggregate(df, pipeline_run_id=pipeline_run_id)
 
             self.pipeline_manager.complete_task(run_id)
 
-            logger.info(
-                f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}"
-            )
-
-            return pipeline_run_id  # optional but recommended
+            logger.info(f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
         except Exception as e:
-
-            logger.error(
-                f"Pipeline failed | table: {table_name} | error: {str(e)}"
-            )
+            logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
 
             if run_id:
                 self.pipeline_manager.fail_task(run_id, str(e))
