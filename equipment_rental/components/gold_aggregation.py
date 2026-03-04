@@ -1,4 +1,3 @@
-# equipment_rental/components/gold_aggregation.py
 from datetime import datetime
 import pandas as pd
 import os
@@ -10,12 +9,6 @@ logger = get_logger()
 
 
 class GoldAggregation:
-    """
-    Aggregates rental transactions and master data to produce:
-    - Equipment utilization %
-    - Customer revenue & rental metrics
-    - Monthly revenue
-    """
 
     def aggregate(self,
                   rental_df: pd.DataFrame,
@@ -30,9 +23,17 @@ class GoldAggregation:
 
             rental_df = rental_df.copy()
 
+            # ---------------- Ensure columns exist ----------------
+            if "DailyRate" not in rental_df.columns:
+                rental_df["DailyRate"] = 0
+            if "RentalDays" not in rental_df.columns:
+                rental_df["RentalDays"] = 0
+            if "quarantined" not in rental_df.columns:
+                rental_df["quarantined"] = 0
+
             # Ensure numeric types
-            rental_df["DailyRate"] = pd.to_numeric(rental_df.get("DailyRate", 0), errors="coerce").fillna(0)
-            rental_df["RentalDays"] = pd.to_numeric(rental_df.get("RentalDays", 0), errors="coerce").fillna(0)
+            rental_df["DailyRate"] = pd.to_numeric(rental_df["DailyRate"], errors="coerce").fillna(0)
+            rental_df["RentalDays"] = pd.to_numeric(rental_df["RentalDays"], errors="coerce").fillna(0)
 
             # Compute revenue
             rental_df["Revenue"] = rental_df["DailyRate"] * rental_df["RentalDays"]
@@ -42,9 +43,7 @@ class GoldAggregation:
             rental_df["pipeline_run_id"] = pipeline_run_id
 
             # ---------------- Filter non-quarantined rentals ----------------
-            if "quarantined" in rental_df.columns:
-                rental_df = rental_df[rental_df["quarantined"] == 0]
-
+            rental_df = rental_df[rental_df["quarantined"] == 0]
             if rental_df.empty:
                 logger.warning("No non-quarantined rental transactions to aggregate.")
                 return
@@ -58,8 +57,6 @@ class GoldAggregation:
                 equip_agg_list = []
                 merged_eq = rental_df.merge(equipment_df, on="EquipmentID", how="left")
                 for equip_id, group in merged_eq.groupby("EquipmentID"):
-                    if group.empty:
-                        continue
                     start = pd.to_datetime(group["StartDate"]).min()
                     end = pd.to_datetime(group["EndDate"]).max() if group["EndDate"].notna().any() else pd.Timestamp.today()
                     total_days_available = max((end - start).days + 1, 1)
@@ -67,8 +64,8 @@ class GoldAggregation:
                     utilization_pct = round(total_rental_days / total_days_available * 100, 2)
                     equip_agg_list.append({
                         "EquipmentID": equip_id,
-                        "EquipmentName": group.get("EquipmentName", [None])[0],
-                        "Category": group.get("Category", [None])[0],
+                        "EquipmentName": group.get("EquipmentName", pd.Series([None])).iloc[0],
+                        "Category": group.get("Category", pd.Series([None])).iloc[0],
                         "total_rentals": group["TransactionID"].count(),
                         "total_revenue": group["Revenue"].sum(),
                         "avg_rental_days": round(group["RentalDays"].mean(), 2),
