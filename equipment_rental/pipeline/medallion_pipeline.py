@@ -136,40 +136,48 @@ class MedallionPipeline:
 
             # =========================
             # GOLD AGGREGATION
-            stage = "gold"
+            # =========================
             gold_id = self.pipeline_manager.add_or_get_source(
                 source_name="Gold",
                 source_type="folder",
                 connection_text=f"artifacts/gold/{table_name}"
             )
 
-            task_id = self.pipeline_manager.start_task(
+            task_name = f"silver to gold {table_name}"
+            run_id = self.pipeline_manager.start_task(
                 source_id=silver_id,
                 target_id=gold_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                stage=stage,
-                table_name=table_name,
+                task_name=task_name,
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Aggregation based on table
-            table_lower = table_name.lower()
-            if table_lower == "rental_transactions":
+            # Only call Gold aggregation for rental transactions
+            if table_name.lower() == "rental_transactions":
+                import os
+                import pandas as pd
+                from equipment_rental.constants.constants import SILVER_DIR
+
+                # Rental transactions
+                rental_df = transformed_tables.get("all")
+                if rental_df is None:
+                    raise ValueError("rental_transactions_all table not found in transformed_tables")
+
+                # Load master tables from silver folder if not in transformed_tables
+                customer_df = transformed_tables.get("customer_master_clean")
+                equipment_df = transformed_tables.get("equipment_master_clean")
+
+                if customer_df is None and os.path.exists(f"{SILVER_DIR}/customer_master_clean.csv"):
+                    customer_df = pd.read_csv(f"{SILVER_DIR}/customer_master_clean.csv")
+
+                if equipment_df is None and os.path.exists(f"{SILVER_DIR}/equipment_master_clean.csv"):
+                    equipment_df = pd.read_csv(f"{SILVER_DIR}/equipment_master_clean.csv")
+
                 self.gold.aggregate(
-                    rental_df=transformed_tables.get("all"),
-                    customer_df=transformed_tables.get("customer_master_clean"),
-                    equipment_df=transformed_tables.get("equipment_master_clean"),
-                    pipeline_run_id=pipeline_run_id
-                )
-            elif table_lower == "customer_master":
-                self.gold.aggregate_customer(
-                    customer_df=transformed_tables.get("all"),
-                    pipeline_run_id=pipeline_run_id
-                )
-            elif table_lower == "equipment_master":
-                self.gold.aggregate_equipment(
-                    equipment_df=transformed_tables.get("all"),
+                    rental_df=rental_df,
+                    customer_df=customer_df,
+                    equipment_df=equipment_df,
                     pipeline_run_id=pipeline_run_id
                 )
 
