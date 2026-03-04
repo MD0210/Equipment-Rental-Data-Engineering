@@ -1,3 +1,4 @@
 2026-03-04 14:48:20,841 - equipment_rental - INFO - pipeline_manager.py:103 - Pipeline Manager DB initialized at C:\Users\marcd\Documents\Equipment-Rental-Data-Engineering\artifacts\pipeline_manager\pipeline_manager.db
 2026-03-04 14:49:29,805 - equipment_rental - INFO - pipeline_manager.py:103 - Pipeline Manager DB initialized at C:\Users\marcd\Documents\Equipment-Rental-Data-Engineering\artifacts\pipeline_manager\pipeline_manager.db
 2026-03-04 15:57:30,805 - equipment_rental - INFO - pipeline_manager.py:103 - Pipeline Manager DB initialized at C:\Users\marcd\Documents\Equipment-Rental-Data-Engineering\artifacts\pipeline_manager\pipeline_manager.db
+2026-03-04 16:09:12,162 - equipment_rental - INFO - pipeline_manager.py:113 - Pipeline Manager DB initialized at C:\Users\marcd\Documents\Equipment-Rental-Data-Engineering\artifacts\pipeline_manager\pipeline_manager.db
