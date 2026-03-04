@@ -52,6 +52,7 @@ def run_pipeline_from_db():
                     table_name=table_name,
                     file_path=connection_text,
                     schedule_id=schedule_id,
+                    batch_id=batch_id,
                     frequency=frequency,
                     run_ts=run_ts,
                     timezone=timezone,
