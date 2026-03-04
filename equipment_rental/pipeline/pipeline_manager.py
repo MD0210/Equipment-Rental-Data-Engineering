@@ -157,6 +157,17 @@ class PipelineManager:
             conn.commit()
         logger.info(f"Task completed | task_id={task_id} | duration={duration} sec")
 
+    def get_task_status(self, pipeline_run_id, stage, table_name):
+        """Return status if task exists, else None"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT status FROM task
+                WHERE pipeline_run_id=? AND stage=? AND table_name=?
+            """, (pipeline_run_id, stage, table_name))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
     def fail_task(self, task_id, error_msg):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()

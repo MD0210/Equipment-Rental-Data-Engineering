@@ -42,6 +42,14 @@ class MedallionPipeline:
             logger.info(f"Pipeline stage started | table: {table_name} | stage: {stage} | pipeline_run_id={pipeline_run_id}")
 
             # --------------------
+            # Check if task already succeeded
+            # --------------------
+            existing_status = self.pipeline_manager.get_task_status(pipeline_run_id, stage, table_name)
+            if existing_status == "success":
+                logger.info(f"Skipping {stage} | table: {table_name} | already succeeded in this pipeline_run_id")
+                return None  # or load existing data if desired
+
+            # --------------------
             # Source registration
             # --------------------
             data_source_id = self.pipeline_manager.add_or_get_source(
@@ -84,7 +92,6 @@ class MedallionPipeline:
             # Silver Stage
             # --------------------
             elif stage == "silver":
-                # Corrected: read from Bronze, not Silver
                 bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
                 if not os.path.exists(bronze_path):
                     raise ValueError(f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}")
