@@ -116,14 +116,35 @@ class PipelineManager:
     # ==========================================================
     # SOURCE
     # ==========================================================
+
     def add_or_get_source(self, source_name, source_type, connection_text):
-        """Return source_id, creating source if needed"""
+        """
+        Return source_id, creating source if needed.
+        If the source_type is 'folder', reuse it if the path already exists in DB.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
+
+            if source_type == "folder":
+                # Reuse existing folder source if path matches
+                cursor.execute(
+                    "SELECT source_id FROM source WHERE source_type='folder' AND connection_text=?",
+                    (connection_text,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+
+            # Otherwise, look up by source_name
+            cursor.execute(
+                "SELECT source_id FROM source WHERE source_name=?",
+                (source_name,)
+            )
             row = cursor.fetchone()
             if row:
                 return row[0]
+
+            # Insert new source
             now = datetime.now()
             cursor.execute("""
                 INSERT INTO source (source_name, source_type, connection_text, insert_ts, insert_user)

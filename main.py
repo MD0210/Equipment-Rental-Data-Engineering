@@ -1,10 +1,12 @@
+# main.py
 from equipment_rental.pipeline.pipeline_manager import PipelineManager
 from equipment_rental.pipeline.medallion_pipeline import MedallionPipeline
 from equipment_rental.logger.logger import get_logger
 import sqlite3
 
 logger = get_logger()
-tables = ["Rental_Transactions","Customer_Master","Equipment_Master"]
+tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
+
 
 def run_pipeline_from_db():
     pm = PipelineManager()
@@ -32,15 +34,22 @@ def run_pipeline_from_db():
     completed = {}
 
     try:
+        # -------------------------------
+        # Execute all stages
+        # -------------------------------
         for row in rows:
             frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
             logger.info(f"Running pipeline | source: {source_name} | batch: {batch_name}")
 
-            for stage in ["bronze","silver","gold"]:
+            for stage in ["bronze", "silver", "gold"]:
                 for table_name in tables:
-                    if stage == "silver" and completed.get((table_name,"bronze")) != "success":
+                    # Skip Silver if Bronze failed
+                    if stage == "silver" and completed.get((table_name, "bronze")) != "success":
+                        logger.warning(f"Skipping Silver stage for {table_name} because Bronze failed")
                         continue
-                    if stage == "gold" and any(completed.get((t,"silver")) != "success" for t in tables):
+                    # Skip Gold if any Silver failed
+                    if stage == "gold" and any(completed.get((t, "silver")) != "success" for t in tables):
+                        logger.warning(f"Skipping Gold stage because Silver stage failed for some tables")
                         continue
 
                     try:
@@ -53,18 +62,24 @@ def run_pipeline_from_db():
                             pipeline_run_id=pipeline_run_id
                         )
                         completed[(table_name, stage)] = "success"
+                        logger.info(f"Stage completed | table={table_name} | stage={stage}")
+
                     except Exception as e:
                         logger.error(f"Pipeline failed | table={table_name} | stage={stage} | error={str(e)}")
                         completed[(table_name, stage)] = "failed"
 
-        # Retry failed tasks
+        # -------------------------------
+        # Retry failed tasks once
+        # -------------------------------
         failed_tasks = pm.get_failed_tasks(pipeline_run_id)
         for stage, table_name in failed_tasks:
-            if stage == "silver" and completed.get((table_name,"bronze")) != "success":
+            if stage == "silver" and completed.get((table_name, "bronze")) != "success":
                 continue
-            if stage == "gold" and any(completed.get((t,"silver")) != "success" for t in tables):
+            if stage == "gold" and any(completed.get((t, "silver")) != "success" for t in tables):
                 continue
+
             try:
+                logger.info(f"Retrying failed task | table={table_name} | stage={stage}")
                 pipeline.run(
                     source_name=source_name,
                     source_type=source_type,
@@ -74,14 +89,18 @@ def run_pipeline_from_db():
                     pipeline_run_id=pipeline_run_id
                 )
                 completed[(table_name, stage)] = "success"
+                logger.info(f"Retry successful | table={table_name} | stage={stage}")
+
             except Exception as e:
-                logger.error(f"Failed again | table={table_name} | stage={stage} | error={str(e)}")
+                logger.error(f"Retry failed | table={table_name} | stage={stage} | error={str(e)}")
 
         pm.complete_pipeline_run(pipeline_run_id)
+        logger.info(f"Pipeline run completed | pipeline_run_id={pipeline_run_id}")
 
     except Exception as e:
         pm.fail_pipeline_run(pipeline_run_id)
-        logger.error(f"Pipeline run failed: {str(e)}")
+        logger.error(f"Pipeline run failed | pipeline_run_id={pipeline_run_id} | error={str(e)}")
+
 
 if __name__ == "__main__":
     run_pipeline_from_db()
