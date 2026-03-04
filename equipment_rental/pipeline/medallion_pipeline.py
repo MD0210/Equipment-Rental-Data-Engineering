@@ -43,6 +43,9 @@ class MedallionPipeline:
         Assumes schedule_id and batch_id are already provided.
         """
         run_id = None
+        bronze_id = None
+        silver_id = None
+        gold_id = None
 
         try:
             logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
@@ -57,7 +60,7 @@ class MedallionPipeline:
             )
 
             # =========================
-            #  BRONZE INGESTION
+            # BRONZE INGESTION
             # =========================
             stage = "bronze"
             bronze_id = self.pipeline_manager.add_or_get_source(
@@ -67,16 +70,15 @@ class MedallionPipeline:
             )
 
             run_id = self.pipeline_manager.start_task(
-                source_id=bronze_id,
-                target_id=silver_id,
+                source_id=data_source_id,
+                target_id=bronze_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                task_name=f"{table_name}_{stage}",   # <-- pass task_name
-                pipeline_run_id=pipeline_run_id,
-                table_name=table_name,
-                stage=stage
+                task_name=f"{table_name}_{stage}",
+                pipeline_run_id=pipeline_run_id
             )
-            # Ingest data (db/excel/csv)
+
+            # Ingest data
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
@@ -115,12 +117,10 @@ class MedallionPipeline:
                 target_id=silver_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                table_name=table_name,
-                stage=stage,
+                task_name=f"{table_name}_{stage}",
                 pipeline_run_id=pipeline_run_id
             )
 
-            # validate + transform
             validated_tables = self.silver_validator.validate(
                 df=bronze_df,
                 table_name=table_name,
@@ -150,12 +150,10 @@ class MedallionPipeline:
                 target_id=gold_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
-                table_name=table_name,
-                stage=stage,
+                task_name=f"{table_name}_{stage}",
                 pipeline_run_id=pipeline_run_id
             )
 
-            # aggregation
             if table_name.lower() == "rental_transactions":
                 self.gold.aggregate(
                     rental_df=transformed_tables.get("all"),
