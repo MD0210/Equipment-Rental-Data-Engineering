@@ -28,6 +28,23 @@ class MedallionPipeline:
         os.makedirs(SILVER_DIR, exist_ok=True)
         os.makedirs(GOLD_DIR, exist_ok=True)
 
+        # Pre-register Bronze, Silver, Gold folder sources to avoid duplicates
+        self.bronze_folder_id = self.pipeline_manager.add_or_get_source(
+            source_name="Bronze",
+            source_type="folder",
+            connection_text=BRONZE_DIR
+        )
+        self.silver_folder_id = self.pipeline_manager.add_or_get_source(
+            source_name="Silver",
+            source_type="folder",
+            connection_text=SILVER_DIR
+        )
+        self.gold_folder_id = self.pipeline_manager.add_or_get_source(
+            source_name="Gold",
+            source_type="folder",
+            connection_text=GOLD_DIR
+        )
+
     def run(
         self,
         source_name,
@@ -46,18 +63,13 @@ class MedallionPipeline:
             # Bronze Stage
             # --------------------
             if stage == "bronze":
-                # Register source and target
+                # Register the actual source dataset
                 source_id = self.pipeline_manager.add_or_get_source(
                     source_name=source_name,
                     source_type=source_type,
                     connection_text=file_path or (db_query["connection_str"] if db_query else None)
                 )
-                target_id = self.pipeline_manager.add_or_get_source(
-                    source_name="Bronze",
-                    source_type="folder",
-                    connection_text=BRONZE_DIR
-                )
-                task_id = self.pipeline_manager.start_task(source_id, target_id, "bronze", table_name, pipeline_run_id)
+                task_id = self.pipeline_manager.start_task(source_id, self.bronze_folder_id, "bronze", table_name, pipeline_run_id)
 
                 # Ingest data
                 if source_type == "db" and db_query:
@@ -76,20 +88,9 @@ class MedallionPipeline:
             # Silver Stage
             # --------------------
             elif stage == "silver":
-                # Use Bronze folder as source
-                bronze_source_id = self.pipeline_manager.add_or_get_source(
-                    source_name="Bronze",
-                    source_type="folder",
-                    connection_text=BRONZE_DIR
-                )
-                silver_target_id = self.pipeline_manager.add_or_get_source(
-                    source_name="Silver",
-                    source_type="folder",
-                    connection_text=SILVER_DIR
-                )
-                task_id = self.pipeline_manager.start_task(bronze_source_id, silver_target_id, "silver", table_name, pipeline_run_id)
+                task_id = self.pipeline_manager.start_task(self.bronze_folder_id, self.silver_folder_id, "silver", table_name, pipeline_run_id)
 
-                # Read Bronze data
+                # Read Bronze CSV
                 bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
                 if not os.path.exists(bronze_path):
                     raise FileNotFoundError(f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}")
@@ -111,22 +112,11 @@ class MedallionPipeline:
             # Gold Stage
             # --------------------
             elif stage == "gold":
-                # Use Silver folder as source
-                silver_source_id = self.pipeline_manager.add_or_get_source(
-                    source_name="Silver",
-                    source_type="folder",
-                    connection_text=SILVER_DIR
-                )
-                gold_target_id = self.pipeline_manager.add_or_get_source(
-                    source_name="Gold",
-                    source_type="folder",
-                    connection_text=GOLD_DIR
-                )
-                task_id = self.pipeline_manager.start_task(silver_source_id, gold_target_id, "gold", table_name, pipeline_run_id)
+                task_id = self.pipeline_manager.start_task(self.silver_folder_id, self.gold_folder_id, "gold", table_name, pipeline_run_id)
 
-                # Load all Silver CSVs
+                # Load all relevant Silver CSVs
                 transformed_tables = {}
-                for f in ["rental_transactions_all.csv","customer_master_clean.csv","equipment_master_clean.csv"]:
+                for f in ["rental_transactions_all.csv", "customer_master_clean.csv", "equipment_master_clean.csv"]:
                     path = os.path.join(SILVER_DIR, f)
                     if os.path.exists(path):
                         key = f.replace(".csv", "")
@@ -139,6 +129,7 @@ class MedallionPipeline:
                     equipment_df=transformed_tables.get("equipment_master_clean"),
                     pipeline_run_id=pipeline_run_id
                 )
+
                 self.pipeline_manager.complete_task(task_id)
 
             else:
