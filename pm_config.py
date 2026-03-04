@@ -1,75 +1,105 @@
 # pm_config.py
 import sqlite3
 from equipment_rental.pipeline.pipeline_manager import PipelineManager
+from equipment_rental.logger.logger import get_logger
 
-def select_operation():
-    print("Pipeline Manager Config")
-    print("=======================")
-    print("1. Add record")
-    print("2. Update record")
-    print("3. Delete record")
-    print("0. Exit")
-    return input("Select operation: ").strip()
+logger = get_logger()
 
-def select_table(pm: PipelineManager):
-    print("\nAvailable tables in pipeline_manager DB:")
-    # List table names dynamically
-    cursor = pm.conn.cursor()
+
+def list_tables(cursor):
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
     tables = [t[0] for t in cursor.fetchall()]
-    for i, t in enumerate(tables, 1):
-        print(f"{i}. {t}")
-    choice = int(input("Select table: "))
-    return tables[choice-1]
+    print("Tables in pipeline_manager.db:")
+    for t in tables:
+        print(f" - {t}")
+    return tables
 
-def add_record(pm: PipelineManager, table: str):
-    cursor = pm.conn.cursor()
-    cursor.execute(f"PRAGMA table_info({table});")
-    columns = [col[1] for col in cursor.fetchall()]
-    values = []
-    for col in columns:
-        val = input(f"Enter value for {col}: ")
-        values.append(f"'{val}'")
-    sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)});"
-    cursor.execute(sql)
-    pm.conn.commit()
-    print(f"Record added to {table}.")
 
-def update_record(pm: PipelineManager, table: str):
-    record_id = input("Enter ID (primary key) of the record to update: ").strip()
-    column = input("Enter column name to update: ").strip()
-    new_val = input(f"Enter new value for {column}: ").strip()
-    sql = f"UPDATE {table} SET {column}='{new_val}' WHERE id={record_id};"
-    pm.conn.execute(sql)
-    pm.conn.commit()
-    print(f"Record {record_id} updated in {table}.")
+def show_table_data(cursor, table_name):
+    cursor.execute(f"SELECT * FROM {table_name} LIMIT 10;")
+    rows = cursor.fetchall()
+    print(f"\nSample data from {table_name} (first 10 rows):")
+    for row in rows:
+        print(row)
 
-def delete_record(pm: PipelineManager, table: str):
-    record_id = input("Enter ID of record to delete: ").strip()
-    sql = f"DELETE FROM {table} WHERE id={record_id};"
-    pm.conn.execute(sql)
-    pm.conn.commit()
-    print(f"Record {record_id} deleted from {table}.")
 
 def main():
-    pm = PipelineManager()  # your PipelineManager class handles the connection
-    pm.init_db()            # ensure the DB exists
+    pm = PipelineManager()
+    pm.init_db()  # ensure DB exists
+
+    conn = pm.conn
+    cursor = conn.cursor()
 
     while True:
-        op = select_operation()
-        if op == "0":
+        action = input("\nSelect action (add/update/delete/view/exit): ").strip().lower()
+
+        if action == "exit":
+            print("Exiting PM config.")
             break
 
-        table = select_table(pm)
+        tables = list_tables(cursor)
+        table_name = input("Select table to operate on: ").strip()
+        if table_name not in tables:
+            print("Invalid table. Try again.")
+            continue
 
-        if op == "1":
-            add_record(pm, table)
-        elif op == "2":
-            update_record(pm, table)
-        elif op == "3":
-            delete_record(pm, table)
+        # ---------------- ADD ----------------
+        if action == "add":
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            cols = [col[1] for col in cursor.fetchall() if col[1] != "id"]
+            values = {}
+            print(f"Enter values for columns: {cols}")
+            for col in cols:
+                values[col] = input(f"{col}: ").strip()
+            placeholders = ", ".join(["?"] * len(values))
+            cols_str = ", ".join(values.keys())
+            cursor.execute(
+                f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})",
+                tuple(values.values())
+            )
+            conn.commit()
+            print("Row added successfully.")
+            show_table_data(cursor, table_name)
+
+        # ---------------- UPDATE ----------------
+        elif action == "update":
+            row_id = input("Enter the id of the row to update: ").strip()
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            cols = [col[1] for col in cursor.fetchall() if col[1] != "id"]
+            updates = {}
+            for col in cols:
+                val = input(f"New value for {col} (leave blank to skip): ").strip()
+                if val != "":
+                    updates[col] = val
+            if updates:
+                set_clause = ", ".join([f"{c}=?" for c in updates])
+                cursor.execute(
+                    f"UPDATE {table_name} SET {set_clause} WHERE id=?",
+                    tuple(list(updates.values()) + [row_id])
+                )
+                conn.commit()
+                print("Row updated successfully.")
+            show_table_data(cursor, table_name)
+
+        # ---------------- DELETE ----------------
+        elif action == "delete":
+            row_id = input("Enter the id of the row to delete (or multiple comma-separated ids): ").strip()
+            ids = [i.strip() for i in row_id.split(",")]
+            cursor.execute(
+                f"DELETE FROM {table_name} WHERE id IN ({','.join(['?']*len(ids))})",
+                tuple(ids)
+            )
+            conn.commit()
+            print("Row(s) deleted successfully.")
+            show_table_data(cursor, table_name)
+
+        # ---------------- VIEW ----------------
+        elif action == "view":
+            show_table_data(cursor, table_name)
+
         else:
-            print("Invalid option.")
+            print("Invalid action. Choose add/update/delete/view/exit.")
+
 
 if __name__ == "__main__":
     main()
