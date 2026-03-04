@@ -96,8 +96,16 @@ class MedallionPipeline:
             # Silver Stage
             # --------------------
             elif stage == "silver":
+                # Silver stage source is the Bronze output of this batch
+                bronze_source_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
+                bronze_source_id = self.pipeline_manager.add_or_get_source(
+                    source_name=f"{table_name}_bronze",
+                    source_type="folder",
+                    connection_text=bronze_source_path
+                )
+
                 task_id = self.pipeline_manager.start_task(
-                    source_id=self.bronze_folder_id,
+                    source_id=bronze_source_id,
                     target_id=self.silver_folder_id,
                     stage="silver",
                     pipeline_run_id=pipeline_run_id,
@@ -105,13 +113,12 @@ class MedallionPipeline:
                     batch_id=batch_id
                 )
 
-                bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
-                if not os.path.exists(bronze_path):
+                if not os.path.exists(bronze_source_path):
                     raise FileNotFoundError(
                         f"Bronze data not found for table '{table_name}' in {BRONZE_DIR}"
                     )
 
-                bronze_df = pd.read_csv(bronze_path)
+                bronze_df = pd.read_csv(bronze_source_path)
 
                 # Validate & transform
                 validated = self.silver_validator.validate(
@@ -150,6 +157,23 @@ class MedallionPipeline:
             # Gold Stage
             # --------------------
             elif stage == "gold":
+                # Gold stage source is the Silver outputs of this batch
+                silver_source_id = self.pipeline_manager.add_or_get_source(
+                    source_name=f"{table_name}_silver",
+                    source_type="folder",
+                    connection_text=SILVER_DIR
+                )
+
+                task_id = self.pipeline_manager.start_task(
+                    source_id=silver_source_id,
+                    target_id=self.gold_folder_id,
+                    stage="gold",
+                    pipeline_run_id=pipeline_run_id,
+                    schedule_id=schedule_id,
+                    batch_id=batch_id
+                )
+
+                # Ensure master tables exist
                 required_masters = [
                     os.path.join(SILVER_DIR, "customer_master_clean.csv"),
                     os.path.join(SILVER_DIR, "equipment_master_clean.csv")
@@ -158,16 +182,6 @@ class MedallionPipeline:
                     if not os.path.exists(path):
                         raise FileNotFoundError(f"Required Silver master file missing: {path}")
 
-                task_id = self.pipeline_manager.start_task(
-                    source_id=self.silver_folder_id,
-                    target_id=self.gold_folder_id,
-                    stage="gold",
-                    pipeline_run_id=pipeline_run_id,
-                    schedule_id=schedule_id,
-                    batch_id=batch_id
-                )
-
-                # Load Silver CSVs
                 rental_df = pd.read_csv(os.path.join(SILVER_DIR, "rental_transactions_all.csv"))
                 customer_df = pd.read_csv(os.path.join(SILVER_DIR, "customer_master_clean.csv"))
                 equipment_df = pd.read_csv(os.path.join(SILVER_DIR, "equipment_master_clean.csv"))
