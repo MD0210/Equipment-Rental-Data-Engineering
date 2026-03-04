@@ -141,32 +141,21 @@ class SilverValidation:
             [True, "Completed but missing EndDate"]
 
         # 8️⃣ Overlapping Rentals Detection
-        df = df.sort_values(["EquipmentID", "StartDate"])
-
         for equip_id, group in df.groupby("EquipmentID"):
-            group = group.reset_index()
+            group = group.sort_values("StartDate").reset_index()
 
             for i in range(len(group) - 1):
-                t1_end = group.loc[i, "EndDate"] \
-                    if pd.notna(group.loc[i, "EndDate"]) \
-                    else pd.Timestamp.max
+                t1_end = pd.to_datetime(group.loc[i, "EndDate"]).normalize() if pd.notna(group.loc[i, "EndDate"]) else pd.Timestamp.max
+                t2_start = pd.to_datetime(group.loc[i + 1, "StartDate"]).normalize()
 
-                t2_start = group.loc[i + 1, "StartDate"]
-
-                if t1_end > t2_start:
+                if t1_end > t2_start:  # Only flag if strictly overlaps
                     t1_idx = group.loc[i, "index"]
                     t2_idx = group.loc[i + 1, "index"]
 
-                    overlap_ids = (
-                        f"{group.loc[i, 'TransactionID']},"
-                        f"{group.loc[i + 1, 'TransactionID']}"
-                    )
+                    overlap_ids = f"{group.loc[i, 'TransactionID']},{group.loc[i + 1, 'TransactionID']}"
 
-                    df.loc[t1_idx, ["quarantined", "quarantine_reason"]] = \
-                        [True, f"Overlapping rental with {overlap_ids}"]
-
-                    df.loc[t2_idx, ["quarantined", "quarantine_reason"]] = \
-                        [True, f"Overlapping rental with {overlap_ids}"]
+                    df.loc[t1_idx, ["quarantined", "quarantine_reason"]] = [True, f"Overlapping rental with {overlap_ids}"]
+                    df.loc[t2_idx, ["quarantined", "quarantine_reason"]] = [True, f"Overlapping rental with {overlap_ids}"]
 
         # ============================================================
         # Metadata Enrichment
@@ -219,35 +208,29 @@ class SilverValidation:
     # ============================================================
     # MASTER TABLE VALIDATION
     # ============================================================
-    def _validate_master_table(self, df, table_name,
-                               source_file, pipeline_run_id):
-
+    def _validate_master_table(self, df, table_name, source_file, pipeline_run_id):
         df = df.copy()
 
-        # Identify ID columns
-        id_columns = [
-            col for col in df.columns if "id" in col.lower()
-        ]
+        # Detect ID columns
+        id_columns = [col for col in df.columns if "id" in col.lower()]
 
         if not id_columns:
             logger.warning(f"No ID column detected in {table_name}")
 
-        # Remove null IDs
+        # Keep only rows with non-null IDs
         for col in id_columns:
             df = df[df[col].notna()]
 
-        # Remove duplicates
-        for col in id_columns:
-            df = df.drop_duplicates(subset=[col])
+        # Remove full duplicate rows only (all columns)
+        df = df.drop_duplicates(keep="first")
 
-        # Metadata
+        # Metadata enrichment
         df["pipeline_run_id"] = pipeline_run_id
         df["load_timestamp"] = datetime.now()
         df["source_file"] = source_file
 
-        logger.info(
-            f"{table_name} validation completed | Rows: {len(df)}"
-        )
+        # Save info
+        logger.info(f"{table_name} validation completed | Rows: {len(df)}")
 
         return {
             "clean": df,
