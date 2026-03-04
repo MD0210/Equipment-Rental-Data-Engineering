@@ -11,61 +11,85 @@ def run_pipeline_from_db():
     pm = PipelineManager()  # DB is initialized automatically
     pipeline = MedallionPipeline()
 
-    import sqlite3
+    # Example pipelines to run per source
+    default_tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
 
-    # Connect to DB and fetch active sources, schedules, batches
-    with sqlite3.connect(pm.db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT s.schedule_id, s.schedule_name, s.frequency, s.run_ts, s.timezone, 
-                   src.source_name, src.source_type, src.connection_text,
-                   b.batch_id, b.batch_name, b.batch_type
-            FROM schedule s
-            JOIN source src ON s.source_id = src.source_id
-            JOIN batch b ON s.schedule_id = b.schedule_id
-            WHERE s.active_flag=1 AND b.active_flag=1
-        """)
-        rows = cursor.fetchall()
+    # Example data: you could read this from a config CSV/JSON if needed
+    pipelines_to_run = [
+        {
+            "source_name": "Equipment_Hire_Dataset",
+            "source_type": "excel",
+            "connection_text": "data/Equipment_Hire_Dataset.xlsx",
+            "schedule_name": "equip_sched",
+            "run_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "frequency": "daily",
+            "batch_name": "daily_batch",
+            "batch_type": "full",
+        }
+    ]
 
-    if not rows:
-        logger.info("No active schedules/batches found. Exiting.")
-        return
-
-    # Generate ONE pipeline_run_id for this full execution
+    # Generate ONE pipeline_run_id for this execution
     pipeline_run_id = pm.create_pipeline_run()
 
-    for row in rows:
-        schedule_id, schedule_name, frequency, run_ts, timezone, \
-        source_name, source_type, connection_text, \
-        batch_id, batch_name, batch_type = row
+    for config in pipelines_to_run:
+        # -----------------------------
+        # 1️⃣ Ensure Source exists
+        # -----------------------------
+        source_id = pm.add_or_get_source(
+            config["source_name"],
+            config["source_type"],
+            config["connection_text"]
+        )
 
-        logger.info(f"Running pipeline | source: {source_name} | schedule: {schedule_name} | batch: {batch_name}")
+        # -----------------------------
+        # 2️⃣ Ensure Schedule exists
+        # -----------------------------
+        schedule_id = pm.add_or_get_schedule(
+            source_id=source_id,
+            schedule_name=config["schedule_name"],
+            frequency=config.get("frequency"),
+            run_ts=config.get("run_ts"),
+            timezone=config.get("timezone"),
+            priority_nbr=1,
+            active_flag=1
+        )
+
+        # -----------------------------
+        # 3️⃣ Ensure Batch exists
+        # -----------------------------
+        batch_id = pm.add_batch(
+            schedule_id=schedule_id,
+            batch_name=config["batch_name"],
+            batch_type=config.get("batch_type", "full"),
+            priority_nbr=1,
+            active_flag=1
+        )
+
+        logger.info(f"Running pipeline | source: {config['source_name']} | schedule: {config['schedule_name']} | batch: {config['batch_name']}")
 
         try:
-            # Here we call MedallionPipeline.run for each source/table
-            # You may want to customize which tables are included per source
-            # For now, we'll assume all tables are ingested from the source
-            tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]  # or fetch dynamically
-
-            for table_name in tables:
+            for table_name in default_tables:
                 logger.info(f"Running pipeline for table: {table_name}")
                 pipeline.run(
-                    source_name=source_name,
-                    source_type=source_type,
+                    source_name=config["source_name"],
+                    source_type=config["source_type"],
                     table_name=table_name,
-                    file_path=connection_text,
-                    schedule_name=schedule_name,
-                    run_ts=run_ts,
-                    timezone=timezone,
-                    frequency=frequency,
-                    priority_nbr=1,  # default, can fetch from DB if needed
-                    active_flag=1,   # default
-                    batch_type=batch_type,
+                    file_path=config["connection_text"],
+                    schedule_name=config["schedule_name"],
+                    run_ts=config["run_ts"],
+                    timezone=config.get("timezone"),
+                    frequency=config.get("frequency"),
+                    priority_nbr=1,
+                    active_flag=1,
+                    batch_type=config.get("batch_type", "full"),
                     pipeline_run_id=pipeline_run_id
                 )
 
         except Exception as e:
-            logger.error(f"Pipeline failed | source: {source_name} | schedule: {schedule_name} | batch: {batch_name} | error: {str(e)}")
+            logger.error(
+                f"Pipeline failed | source: {config['source_name']} | "
+                f"schedule: {config['schedule_name']} | batch: {config['batch_name']} | error: {str(e)}"
+            )
             continue
 
     logger.info(f"All pipelines completed | pipeline_run_id={pipeline_run_id}")
