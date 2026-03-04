@@ -17,19 +17,19 @@ class GoldAggregation:
     """
 
     def aggregate(self, df: pd.DataFrame, pipeline_run_id: str = None):
-        """
-        Perform gold-level aggregation and save CSVs.
-        Only uses rows with quarantined==0
-        """
         try:
             if df.empty:
                 logger.warning("Input DataFrame is empty. Nothing to aggregate.")
                 return
 
-            # Only consider non-quarantined rows
-            df = df[df["quarantined"] == 0].copy()
+            # Only consider non-quarantined rows if exists
+            if "quarantined" in df.columns:
+                df = df[df["quarantined"] == 0].copy()
+            else:
+                df = df.copy()
+
             if df.empty:
-                logger.warning("No non-quarantined rows available for aggregation.")
+                logger.warning("No rows available for aggregation after quarantine filter.")
                 return
 
             # Ensure essential columns
@@ -50,7 +50,7 @@ class GoldAggregation:
             df["pipeline_run_id"] = pipeline_run_id
             df["source_file"] = df.get("source_file", "silver_validation")
 
-            # ----------------- Equipment-level aggregation -----------------
+            # Equipment-level aggregation
             equipment_list = []
             for equip_id, group in df.groupby("EquipmentID"):
                 if group.empty:
@@ -73,7 +73,7 @@ class GoldAggregation:
             equipment_agg = pd.DataFrame(equipment_list)
             save_csv(equipment_agg, os.path.join(GOLD_DIR, "equipment_aggregation.csv"))
 
-            # ----------------- Customer-level aggregation -----------------
+            # Customer-level aggregation
             customer_agg = df.groupby("CustomerID").agg(
                 total_rentals=pd.NamedAgg(column="TransactionID", aggfunc="count"),
                 total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum"),
@@ -82,7 +82,7 @@ class GoldAggregation:
             customer_agg["load_timestamp"] = datetime.now()
             save_csv(customer_agg, os.path.join(GOLD_DIR, "customer_aggregation.csv"))
 
-            # ----------------- Monthly revenue aggregation -----------------
+            # Monthly aggregation
             df["RentalMonth"] = df["StartDate"].dt.to_period("M")
             monthly_agg = df.groupby("RentalMonth").agg(
                 total_rentals=pd.NamedAgg(column="TransactionID", aggfunc="count"),
