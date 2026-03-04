@@ -112,14 +112,17 @@ class MedallionPipeline:
                 )
 
                 # Save only desired outputs
+                allowed_keys = []
+                if table_name.lower() in ["customer_master", "equipment_master"]:
+                    allowed_keys = ["clean"]
+                elif table_name.lower() == "rental_transactions":
+                    allowed_keys = ["all", "active", "completed", "cancelled"]  # exclude equipment_utilisation and quarantine
+
                 for key, df in transformed.items():
-                    if table_name.lower() in ["customer_master", "equipment_master"] and key != "clean":
-                        continue  # skip 'all' for master tables
+                    if key not in allowed_keys:
+                        continue  # skip unwanted keys
                     save_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_{key}.csv")
                     df.to_csv(save_path, index=False)
-
-                self.pipeline_manager.complete_task(task_id)
-                return transformed
 
             # --------------------
             # Gold Stage
