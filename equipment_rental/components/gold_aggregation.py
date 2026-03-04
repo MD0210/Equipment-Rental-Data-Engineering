@@ -8,37 +8,39 @@ from equipment_rental.logger.logger import get_logger
 
 logger = get_logger()
 
-
 class GoldAggregation:
     """
-    Aggregates Silver validated rental transactions to produce high-level metrics:
+    Aggregates validated rental transactions to produce high-level metrics:
     - Equipment utilization %
     - Revenue by equipment, customer, and month
     """
 
     def aggregate(self, df: pd.DataFrame, pipeline_run_id: str = None):
+        """
+        Performs aggregations on validated rental transactions (all_df from Silver layer).
+        Saves aggregated results to GOLD_DIR as CSV files.
+        Includes pipeline_run_id in output.
+        """
         try:
             if df.empty:
                 logger.warning("Input DataFrame is empty. Nothing to aggregate.")
                 return
 
-            # Only consider non-quarantined rows if exists
+            # Filter out quarantined rows if column exists
             if "quarantined" in df.columns:
                 df = df[df["quarantined"] == 0].copy()
-            else:
-                df = df.copy()
 
             if df.empty:
-                logger.warning("No rows available for aggregation after quarantine filter.")
+                logger.warning("No valid rows available for aggregation after quarantine filter.")
                 return
 
-            # Ensure essential columns
+            # Ensure essential columns exist
             for col in ["DailyRate", "RentalDays", "StartDate", "EndDate",
                         "TransactionID", "EquipmentID", "CustomerID"]:
                 if col not in df.columns:
                     df[col] = 0 if col in ["DailyRate", "RentalDays"] else pd.NaT if "Date" in col else None
 
-            # Ensure numeric types
+            # Convert numeric columns
             df["DailyRate"] = pd.to_numeric(df["DailyRate"], errors="coerce").fillna(0)
             df["RentalDays"] = pd.to_numeric(df["RentalDays"], errors="coerce").fillna(0)
 
@@ -50,14 +52,14 @@ class GoldAggregation:
             df["pipeline_run_id"] = pipeline_run_id
             df["source_file"] = df.get("source_file", "silver_validation")
 
-            # Equipment-level aggregation
+            # ----------------- Equipment-level aggregation -----------------
             equipment_list = []
             for equip_id, group in df.groupby("EquipmentID"):
                 if group.empty:
                     continue
                 start = group["StartDate"].min()
                 end = group["EndDate"].max() if group["EndDate"].notna().any() else pd.Timestamp.today()
-                total_days_available = max((end - start).days + 1, 1)
+                total_days_available = max((end - start).days + 1, 1)  # avoid division by zero
                 total_rental_days = group["RentalDays"].sum()
                 utilization_pct = round(total_rental_days / total_days_available * 100, 2)
                 equipment_list.append({
@@ -69,24 +71,23 @@ class GoldAggregation:
                     "pipeline_run_id": pipeline_run_id,
                     "load_timestamp": datetime.now()
                 })
-
             equipment_agg = pd.DataFrame(equipment_list)
             save_csv(equipment_agg, os.path.join(GOLD_DIR, "equipment_aggregation.csv"))
 
-            # Customer-level aggregation
+            # ----------------- Customer-level aggregation -----------------
             customer_agg = df.groupby("CustomerID").agg(
                 total_rentals=pd.NamedAgg(column="TransactionID", aggfunc="count"),
-                total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum"),
+                total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum")
             ).reset_index()
             customer_agg["pipeline_run_id"] = pipeline_run_id
             customer_agg["load_timestamp"] = datetime.now()
             save_csv(customer_agg, os.path.join(GOLD_DIR, "customer_aggregation.csv"))
 
-            # Monthly aggregation
+            # ----------------- Monthly aggregation -----------------
             df["RentalMonth"] = df["StartDate"].dt.to_period("M")
             monthly_agg = df.groupby("RentalMonth").agg(
                 total_rentals=pd.NamedAgg(column="TransactionID", aggfunc="count"),
-                total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum"),
+                total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum")
             ).reset_index()
             monthly_agg["pipeline_run_id"] = pipeline_run_id
             monthly_agg["load_timestamp"] = datetime.now()
