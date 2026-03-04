@@ -115,17 +115,7 @@ class SilverValidation:
         df.loc[mismatch_days, ["quarantined", "quarantine_reason"]] = \
             [True, "RentalDays mismatch with date difference"]
 
-        # 6️⃣ Revenue Reconciliation
-        df["ExpectedRevenue"] = df["RentalDays"] * df["DailyRate"]
-        revenue_mismatch = (
-            df["ExpectedRevenue"].notna() &
-            df["ActualRevenue"].notna() &
-            (df["ExpectedRevenue"] != df["ActualRevenue"])
-        )
-        df.loc[revenue_mismatch, ["quarantined", "quarantine_reason"]] = \
-            [True, "Revenue mismatch"]
-
-        # 7️⃣ Status vs EndDate consistency
+        # 6️⃣ Status vs EndDate consistency
         active_but_has_end = (
             (df["Status"] == "active") &
             df["EndDate"].notna()
@@ -140,7 +130,8 @@ class SilverValidation:
         df.loc[completed_but_no_end, ["quarantined", "quarantine_reason"]] = \
             [True, "Completed but missing EndDate"]
 
-        # 8️⃣ Overlapping Rentals Detection
+
+        # 7️⃣ Overlapping Rentals Detection
         for equip_id, group in df.groupby("EquipmentID"):
             group = group.sort_values("StartDate").reset_index()
 
@@ -156,6 +147,7 @@ class SilverValidation:
 
                     df.loc[t1_idx, ["quarantined", "quarantine_reason"]] = [True, f"Overlapping rental with {overlap_ids}"]
                     df.loc[t2_idx, ["quarantined", "quarantine_reason"]] = [True, f"Overlapping rental with {overlap_ids}"]
+
 
         # ============================================================
         # Metadata Enrichment
