@@ -67,15 +67,15 @@ class MedallionPipeline:
             )
 
             run_id = self.pipeline_manager.start_task(
-                source_id=data_source_id,
-                target_id=bronze_id,
+                source_id=bronze_id,
+                target_id=silver_id,
                 schedule_id=schedule_id,
                 batch_id=batch_id,
+                task_name=f"{table_name}_{stage}",   # <-- pass task_name
+                pipeline_run_id=pipeline_run_id,
                 table_name=table_name,
-                stage=stage,
-                pipeline_run_id=pipeline_run_id
+                stage=stage
             )
-
             # Ingest data (db/excel/csv)
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(
