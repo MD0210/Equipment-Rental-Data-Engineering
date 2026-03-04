@@ -64,7 +64,6 @@ class MedallionPipeline:
             task_id = self.pipeline_manager.start_task(
                 source_id=data_source_id,
                 target_id=bronze_id,
-                schedule_id=schedule_id,
                 stage="bronze",
                 table_name=table_name,
                 pipeline_run_id=pipeline_run_id
@@ -106,7 +105,6 @@ class MedallionPipeline:
             task_id = self.pipeline_manager.start_task(
                 source_id=bronze_id,
                 target_id=silver_id,
-                schedule_id=schedule_id,
                 stage="silver",
                 table_name=table_name,
                 pipeline_run_id=pipeline_run_id
@@ -139,7 +137,6 @@ class MedallionPipeline:
             task_id = self.pipeline_manager.start_task(
                 source_id=silver_id,
                 target_id=gold_id,
-                schedule_id=schedule_id,
                 stage="gold",
                 table_name=table_name,
                 pipeline_run_id=pipeline_run_id

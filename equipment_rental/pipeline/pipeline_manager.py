@@ -73,14 +73,13 @@ class PipelineManager:
             )
             """)
 
-            # TASK (no batch_id)
+            # TASK
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS task (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 pipeline_run_id TEXT,
                 source_id INTEGER,
                 target_id INTEGER,
-                schedule_id INTEGER,
                 stage TEXT,
                 table_name TEXT,
                 status TEXT,
@@ -94,10 +93,6 @@ class PipelineManager:
                 update_user TEXT
             )
             """)
-
-            conn.commit()
-
-        logger.info(f"Pipeline Manager DB initialized at {self.db_path}")
 
     # ==========================================================
     # PIPELINE RUN
@@ -126,28 +121,33 @@ class PipelineManager:
             return cursor.lastrowid
 
     # ==========================================================
-    # TASK (simplified, no batch_id)
+    # TASK 
     # ==========================================================
-    def start_task(self, source_id, target_id, schedule_id,
-                   stage, table_name, pipeline_run_id):
+    def start_task(self, source_id, target_id,
+                stage, table_name, pipeline_run_id):
         """Start a task for a given stage (bronze/silver/gold)."""
         start_ts = datetime.now()
+
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO task (
-                    pipeline_run_id, source_id, target_id, schedule_id,
-                    stage, table_name, status, start_ts, insert_ts, insert_user
+                    pipeline_run_id, source_id, target_id,
+                    stage, table_name, status,
+                    start_ts, insert_ts, insert_user
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (pipeline_run_id, source_id, target_id, schedule_id,
-                  stage, table_name, "running", start_ts, start_ts, "system"))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                pipeline_run_id, source_id, target_id,
+                stage, table_name, "running",
+                start_ts, start_ts, "system"
+            ))
             conn.commit()
             task_id = cursor.lastrowid
 
         logger.info(f"Task started | pipeline_run_id={pipeline_run_id} | stage={stage}")
         return task_id
-
+    
     def complete_task(self, task_id):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
