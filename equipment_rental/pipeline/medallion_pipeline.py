@@ -175,13 +175,24 @@ class MedallionPipeline:
 
             # Only call Gold aggregation for rental transactions
             if table_name.lower() == "rental_transactions":
-                # Map transformed tables
-                rental_df = transformed_tables.get("all")
-                customer_df = transformed_tables.get("all") if "customer_master" in transformed_tables else None
-                equipment_df = transformed_tables.get("all") if "equipment_master" in transformed_tables else None
+                import os
+                import pandas as pd
+                from equipment_rental.constants.constants import SILVER_DIR
 
+                # Rental transactions
+                rental_df = transformed_tables.get("all")
                 if rental_df is None:
                     raise ValueError("rental_transactions_all table not found in transformed_tables")
+
+                # Load master tables from silver folder if not in transformed_tables
+                customer_df = transformed_tables.get("customer_master_clean")
+                equipment_df = transformed_tables.get("equipment_master_clean")
+
+                if customer_df is None and os.path.exists(f"{SILVER_DIR}/customer_master_clean.csv"):
+                    customer_df = pd.read_csv(f"{SILVER_DIR}/customer_master_clean.csv")
+
+                if equipment_df is None and os.path.exists(f"{SILVER_DIR}/equipment_master_clean.csv"):
+                    equipment_df = pd.read_csv(f"{SILVER_DIR}/equipment_master_clean.csv")
 
                 self.gold.aggregate(
                     rental_df=rental_df,
