@@ -41,14 +41,36 @@ def run_pipeline_from_db():
 
         try:
             tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
-            
-            for table_name in tables:
-                logger.info(f"Running pipeline for table: {table_name}")
 
+            for table_name in tables:
+                logger.info(f"Processing table: {table_name}")
+
+                # ---------- BRONZE ----------
+                bronze_df = pipeline.run(
+                    source_name=source_name,
+                    source_type=source_type,
+                    table_name=table_name,
+                    stage="bronze",
+                    file_path=connection_text,
+                    pipeline_run_id=pipeline_run_id
+                )
+
+                # ---------- SILVER ----------
+                transformed_tables = pipeline.run(
+                    source_name=source_name,
+                    source_type=source_type,
+                    table_name=table_name,
+                    stage="silver",
+                    file_path=connection_text,
+                    pipeline_run_id=pipeline_run_id
+                )
+
+                # ---------- GOLD ----------
                 pipeline.run(
                     source_name=source_name,
                     source_type=source_type,
                     table_name=table_name,
+                    stage="gold",
                     file_path=connection_text,
                     pipeline_run_id=pipeline_run_id
                 )
