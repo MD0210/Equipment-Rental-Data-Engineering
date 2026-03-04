@@ -10,15 +10,17 @@ def run_pipeline_from_db():
     pm = PipelineManager()
     pipeline = MedallionPipeline()
 
-    # Fetch active schedules & sources
+    # Fetch active schedules & batches
     with sqlite3.connect(pm.db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT s.frequency, s.run_ts, s.timezone,
-                   src.source_name, src.source_type, src.connection_text
+                   src.source_name, src.source_type, src.connection_text,
+                   b.batch_name
             FROM schedule s
             JOIN source src ON s.source_id = src.source_id
-            WHERE s.active_flag=1
+            JOIN batch b ON s.schedule_id = b.schedule_id
+            WHERE s.active_flag=1 AND b.active_flag=1
         """)
         rows = cursor.fetchall()
 
@@ -31,16 +33,22 @@ def run_pipeline_from_db():
 
     try:
         for row in rows:
-            frequency, run_ts, timezone, source_name, source_type, connection_text = row
-            table_name = source_name  # Use source_name as table_name
+            frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
+
+            # Use batch_name as table_name only for Excel, otherwise use source_name
+            if source_type.lower() == "excel":
+                table_name = batch_name
+            else:
+                table_name = source_name
+
             logger.info(f"Starting pipeline for table/source: {table_name}")
 
-            # Run stages sequentially: bronze → silver → gold
             for stage in ["bronze", "silver", "gold"]:
-                # Skip stages if previous stage failed
+                # Skip Silver if Bronze failed
                 if stage == "silver" and completed.get((table_name, "bronze")) != "success":
                     logger.warning(f"Skipping Silver stage for {table_name} because Bronze failed")
                     continue
+                # Skip Gold if Silver failed
                 if stage == "gold" and completed.get((table_name, "silver")) != "success":
                     logger.warning(f"Skipping Gold stage for {table_name} because Silver failed")
                     continue
