@@ -117,8 +117,9 @@ class SilverValidation:
                     t2_idx = group.loc[i + 1, "index"]
                     overlap_ids = f"{group.loc[i, 'TransactionID']},{group.loc[i + 1, 'TransactionID']}"
 
-                    df.loc[t1_idx] = df.loc[t1_idx].apply(lambda r: quarantine(r, f"Overlapping rental with {overlap_ids}"), axis=1)
-                    df.loc[t2_idx] = df.loc[t2_idx].apply(lambda r: quarantine(r, f"Overlapping rental with {overlap_ids}"), axis=1)
+                    # Call directly on Series
+                    df.loc[t1_idx] = quarantine(df.loc[t1_idx], f"Overlapping rental with {overlap_ids}")
+                    df.loc[t2_idx] = quarantine(df.loc[t2_idx], f"Overlapping rental with {overlap_ids}")
 
         # Metadata
         df["pipeline_run_id"] = pipeline_run_id
