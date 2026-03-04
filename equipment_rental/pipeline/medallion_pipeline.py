@@ -28,7 +28,8 @@ class MedallionPipeline:
         file_path=None,
         db_query=None,
         batch_type="full",
-        schedule_name=None,
+        schedule_id=None,
+        batch_id=None,
         frequency="manual",
         run_ts=None,
         timezone=None,
@@ -36,14 +37,18 @@ class MedallionPipeline:
         active_flag=1,
         pipeline_run_id=None
     ):
-
+        """
+        Runs the Medallion pipeline for a given table.
+        This version does NOT insert schedules or batches.
+        Assumes schedule_id and batch_id are already provided.
+        """
         run_id = None
 
         try:
             logger.info(f"Pipeline started | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
             # =========================
-            # 1️⃣ SOURCE
+            # SOURCE
             # =========================
             data_source_id = self.pipeline_manager.add_or_get_source(
                 source_name=source_name,
@@ -52,31 +57,7 @@ class MedallionPipeline:
             )
 
             # =========================
-            # 2️⃣ SCHEDULE
-            # =========================
-            schedule_id = self.pipeline_manager.add_or_get_schedule(
-                source_id=data_source_id,
-                schedule_name=schedule_name or f"manual_{table_name}",
-                frequency=frequency,
-                run_ts=run_ts,
-                timezone=timezone,
-                priority_nbr=priority_nbr,
-                active_flag=active_flag
-            )
-
-            # =========================
-            # 3️⃣ BATCH
-            # =========================
-            batch_id = self.pipeline_manager.add_batch(
-                schedule_id=schedule_id,
-                batch_name=table_name,
-                batch_type=batch_type,
-                priority_nbr=priority_nbr,
-                active_flag=active_flag
-            )
-
-            # =========================
-            # 4️⃣ BRONZE INGESTION
+            # BRONZE INGESTION
             # =========================
             bronze_id = self.pipeline_manager.add_or_get_source(
                 source_name="Bronze",
@@ -119,7 +100,7 @@ class MedallionPipeline:
             self.pipeline_manager.complete_task(run_id)
 
             # =========================
-            # 5️⃣ SILVER VALIDATION & TRANSFORMATION
+            # SILVER VALIDATION & TRANSFORMATION
             # =========================
             silver_id = self.pipeline_manager.add_or_get_source(
                 source_name="Silver",
@@ -137,7 +118,6 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Validate Bronze -> Silver
             validated_tables = self.silver_validator.validate(
                 df=bronze_df,
                 table_name=table_name,
@@ -145,7 +125,6 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Transform Silver
             transformed_tables = self.silver_transformer.transform(
                 validated_tables=validated_tables,
                 table_name=table_name,
@@ -155,7 +134,7 @@ class MedallionPipeline:
             self.pipeline_manager.complete_task(run_id)
 
             # =========================
-            # 6️⃣ GOLD AGGREGATION
+            # GOLD AGGREGATION
             # =========================
             gold_id = self.pipeline_manager.add_or_get_source(
                 source_name="Gold",
@@ -173,18 +152,15 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Only call Gold aggregation for rental transactions
             if table_name.lower() == "rental_transactions":
                 import os
                 import pandas as pd
                 from equipment_rental.constants.constants import SILVER_DIR
 
-                # Rental transactions
                 rental_df = transformed_tables.get("all")
                 if rental_df is None:
-                    raise ValueError("rental_transactions_all table not found in transformed_tables")
+                    raise ValueError("rental_transactions_all table not found")
 
-                # Load master tables from silver folder if not in transformed_tables
                 customer_df = transformed_tables.get("customer_master_clean")
                 equipment_df = transformed_tables.get("equipment_master_clean")
 
@@ -202,15 +178,10 @@ class MedallionPipeline:
                 )
 
             self.pipeline_manager.complete_task(run_id)
-
             logger.info(f"Pipeline completed successfully | table: {table_name} | pipeline_run_id={pipeline_run_id}")
 
         except Exception as e:
             logger.error(f"Pipeline failed | table: {table_name} | error: {str(e)}")
-
             if run_id:
                 self.pipeline_manager.fail_task(run_id, str(e))
-
-            raise PipelineManagerException(
-                f"Medallion pipeline execution failed: {str(e)}"
-            )
+            raise PipelineManagerException(f"Medallion pipeline execution failed: {str(e)}")
