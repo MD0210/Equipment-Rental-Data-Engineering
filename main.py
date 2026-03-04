@@ -2,23 +2,22 @@
 from equipment_rental.pipeline.pipeline_manager import PipelineManager
 from equipment_rental.pipeline.medallion_pipeline import MedallionPipeline
 from equipment_rental.logger.logger import get_logger
-from datetime import datetime
 import sqlite3
 
 logger = get_logger()
 
 
 def run_pipeline_from_db():
-    pm = PipelineManager()  # DB is initialized automatically
+    pm = PipelineManager()
     pipeline = MedallionPipeline()
 
-    # Connect to DB and fetch active sources, schedules, batches
+    # Fetch active schedules & batches
     with sqlite3.connect(pm.db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.schedule_id, s.frequency, s.run_ts, s.timezone,
-                   src.source_id, src.source_name, src.source_type, src.connection_text,
-                   b.batch_id, b.batch_name
+            SELECT s.frequency, s.run_ts, s.timezone,
+                   src.source_name, src.source_type, src.connection_text,
+                   b.batch_name
             FROM schedule s
             JOIN source src ON s.source_id = src.source_id
             JOIN batch b ON s.schedule_id = b.schedule_id
@@ -30,39 +29,37 @@ def run_pipeline_from_db():
         logger.info("No active schedules/batches found. Exiting.")
         return
 
-    # Generate ONE pipeline_run_id for this full execution
+    # ONE pipeline_run_id for entire execution
     pipeline_run_id = pm.create_pipeline_run()
 
     for row in rows:
-        schedule_id, frequency, run_ts, timezone, \
-        source_id, source_name, source_type, connection_text, \
-        batch_id, batch_name = row
+        frequency, run_ts, timezone, \
+        source_name, source_type, connection_text, \
+        batch_name = row
 
         logger.info(f"Running pipeline | source: {source_name} | batch: {batch_name}")
 
         try:
-            # Tables to process; can be dynamic or fixed
             tables = ["Rental_Transactions", "Customer_Master", "Equipment_Master"]
 
             for table_name in tables:
                 logger.info(f"Running pipeline for table: {table_name}")
+
                 pipeline.run(
                     source_name=source_name,
                     source_type=source_type,
                     table_name=table_name,
                     file_path=connection_text,
-                    schedule_id=schedule_id,
-                    batch_id=batch_id,
                     frequency=frequency,
                     run_ts=run_ts,
                     timezone=timezone,
-                    priority_nbr=1,       # default
-                    active_flag=1,        # default
                     pipeline_run_id=pipeline_run_id
                 )
 
         except Exception as e:
-            logger.error(f"Pipeline failed | source: {source_name} | batch: {batch_name} | error: {str(e)}")
+            logger.error(
+                f"Pipeline failed | source: {source_name} | batch: {batch_name} | error: {str(e)}"
+            )
             continue
 
     logger.info(f"All pipelines completed | pipeline_run_id={pipeline_run_id}")
