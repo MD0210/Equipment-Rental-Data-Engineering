@@ -39,7 +39,7 @@ class MedallionPipeline:
     ):
         """
         Runs the Medallion pipeline for a given table.
-        This version does NOT use run_id or task_name; tasks are tracked by task_id.
+        Tracks tasks by task_id, with gold aggregation for all tables.
         """
         task_id = None
 
@@ -56,7 +56,7 @@ class MedallionPipeline:
             )
 
             # =========================
-            #  BRONZE INGESTION
+            # BRONZE INGESTION
             # =========================
             stage = "bronze"
             bronze_id = self.pipeline_manager.add_or_get_source(
@@ -75,7 +75,7 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Ingest data (db/excel/csv)
+            # Ingest data
             if source_type == "db" and db_query:
                 bronze_df, _ = self.bronze.ingest_db(
                     connection_str=db_query["connection_str"],
@@ -153,11 +153,23 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            if table_name.lower() == "rental_transactions":
+            # Aggregation based on table
+            table_lower = table_name.lower()
+            if table_lower == "rental_transactions":
                 self.gold.aggregate(
                     rental_df=transformed_tables.get("all"),
                     customer_df=transformed_tables.get("customer_master_clean"),
                     equipment_df=transformed_tables.get("equipment_master_clean"),
+                    pipeline_run_id=pipeline_run_id
+                )
+            elif table_lower == "customer_master":
+                self.gold.aggregate_customer(
+                    customer_df=transformed_tables.get("all"),
+                    pipeline_run_id=pipeline_run_id
+                )
+            elif table_lower == "equipment_master":
+                self.gold.aggregate_equipment(
+                    equipment_df=transformed_tables.get("all"),
                     pipeline_run_id=pipeline_run_id
                 )
 
