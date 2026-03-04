@@ -28,20 +28,48 @@ def run_pipeline_from_db():
         logger.info("No active schedules found. Exiting.")
         return
 
+    # Organize rows into a dict: table_name -> row
+    schedule_map = {row[3]: row for row in rows}  # key = source_name
+
     pipeline_run_id = pm.create_pipeline_run()
     completed = {}
 
     try:
-        for row in rows:
+        # ---- Step 1: Process master tables first ----
+        for master_table in ["Customer_Master", "Equipment_Master"]:
+            if master_table not in schedule_map:
+                logger.warning(f"No schedule found for master table: {master_table}")
+                continue
+
+            row = schedule_map[master_table]
             frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
 
-            # Use batch_name as table_name only for Excel, otherwise use source_name
-            if source_type.lower() == "excel":
-                table_name = batch_name  # batch_name must exactly match source sheet name
-            else:
-                table_name = source_name  # e.g., "Customer_Master", "Equipment_Master"
+            # Use batch_name only for Excel
+            table_name = batch_name if source_type.lower() == "excel" else source_name
 
-            logger.info(f"Starting pipeline for table/source: {table_name}")
+            for stage in ["bronze", "silver"]:
+                try:
+                    pipeline.run(
+                        source_name=source_name,
+                        source_type=source_type,
+                        table_name=table_name,
+                        stage=stage,
+                        file_path=connection_text,
+                        pipeline_run_id=pipeline_run_id
+                    )
+                    completed[(table_name, stage)] = "success"
+                    logger.info(f"Stage completed | table={table_name} | stage={stage}")
+                except Exception as e:
+                    completed[(table_name, stage)] = "failed"
+                    logger.error(f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}")
+                    break  # skip remaining stages for this table if failed
+
+        # ---- Step 2: Process Rental_Transactions ----
+        rental_table = "Rental_Transactions"
+        if rental_table in schedule_map:
+            row = schedule_map[rental_table]
+            frequency, run_ts, timezone, source_name, source_type, connection_text, batch_name = row
+            table_name = batch_name if source_type.lower() == "excel" else source_name
 
             for stage in ["bronze", "silver", "gold"]:
                 # Skip Silver if Bronze failed
@@ -64,7 +92,6 @@ def run_pipeline_from_db():
                     )
                     completed[(table_name, stage)] = "success"
                     logger.info(f"Stage completed | table={table_name} | stage={stage}")
-
                 except Exception as e:
                     completed[(table_name, stage)] = "failed"
                     logger.error(f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}")
