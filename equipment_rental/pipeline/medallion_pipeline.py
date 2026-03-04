@@ -173,11 +173,20 @@ class MedallionPipeline:
                 pipeline_run_id=pipeline_run_id
             )
 
-            # Aggregate Gold using all three silver tables
+            # Aggregate Gold
+            for tname, df in transformed_tables.items():
+                if tname.lower() == "rental_transactions_all":
+                    rental_df = df
+                elif tname.lower() == "customer_master_clean":
+                    customer_df = df
+                elif tname.lower() == "equipment_master_clean":
+                    equipment_df = df
+
+            # Call Gold aggregation with the exact DataFrames
             self.gold.aggregate(
-                rental_df=transformed_tables.get("all"),                   # rental_transaction_all
-                customer_df=transformed_tables.get("customer_clean"),       # customer_master_clean
-                equipment_df=transformed_tables.get("equipment_clean"),     # equipment_master_clean
+                rental_df=rental_df,
+                customer_df=customer_df,
+                equipment_df=equipment_df,
                 pipeline_run_id=pipeline_run_id
             )
 
