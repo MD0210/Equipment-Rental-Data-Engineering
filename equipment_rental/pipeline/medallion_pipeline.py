@@ -180,8 +180,14 @@ class MedallionPipeline:
                     save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
                     df.to_csv(save_path, index=False)
 
-                self.pipeline_manager.complete_task(task_id)
-                return transformed
+                    # ✅ Register each Silver CSV as source
+                    detected_type = self._detect_source_type(save_path)
+
+                    self.pipeline_manager.add_or_get_source(
+                        source_name=f"{save_name}_{key}_silver",
+                        source_type=detected_type,
+                        connection_text=save_path
+                    )
 
             # --------------------
             # Gold Stage
@@ -244,6 +250,23 @@ class MedallionPipeline:
                     equipment_df=equipment_df,
                     pipeline_run_id=pipeline_run_id
                 )
+
+                # ✅ Register all Gold CSV outputs
+                gold_files = [
+                    f for f in os.listdir(GOLD_DIR)
+                    if f.endswith(".csv")
+                ]
+
+                for file in gold_files:
+                    file_path = os.path.join(GOLD_DIR, file)
+
+                    detected_type = self._detect_source_type(file_path)
+
+                    self.pipeline_manager.add_or_get_source(
+                        source_name=file.replace(".csv", "_gold"),
+                        source_type=detected_type,
+                        connection_text=file_path
+                    )
 
                 self.pipeline_manager.complete_task(task_id)
                 return True
