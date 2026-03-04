@@ -112,21 +112,20 @@ class MedallionPipeline:
             # Gold Stage
             # --------------------
             elif stage == "gold":
-                task_id = self.pipeline_manager.start_task(self.silver_folder_id, self.gold_folder_id, "gold", table_name, pipeline_run_id)
+                task_id = self.pipeline_manager.start_task(
+                    self.silver_folder_id, self.gold_folder_id, "gold", "gold_aggregation", pipeline_run_id
+                )
 
-                # Load all relevant Silver CSVs
-                transformed_tables = {}
-                for f in ["rental_transactions_all.csv", "customer_master_clean.csv", "equipment_master_clean.csv"]:
-                    path = os.path.join(SILVER_DIR, f)
-                    if os.path.exists(path):
-                        key = f.replace(".csv", "")
-                        transformed_tables[key] = pd.read_csv(path)
+                # Load required Silver CSVs
+                rental_df = pd.read_csv(os.path.join(SILVER_DIR, "rental_transactions_all.csv"))
+                customer_df = pd.read_csv(os.path.join(SILVER_DIR, "customer_master_clean.csv"))
+                equipment_df = pd.read_csv(os.path.join(SILVER_DIR, "equipment_master_clean.csv"))
 
-                # Aggregate Gold tables
+                # Run Gold aggregation
                 self.gold.aggregate(
-                    rental_df=transformed_tables.get("rental_transactions_all") if table_name.lower() == "rental_transactions" else None,
-                    customer_df=transformed_tables.get("customer_master_clean"),
-                    equipment_df=transformed_tables.get("equipment_master_clean"),
+                    rental_df=rental_df,
+                    customer_df=customer_df,
+                    equipment_df=equipment_df,
                     pipeline_run_id=pipeline_run_id
                 )
 
