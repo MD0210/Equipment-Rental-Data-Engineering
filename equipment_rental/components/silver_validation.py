@@ -109,17 +109,26 @@ class SilverValidation:
             group = group.sort_values("StartDate").reset_index()
 
             for i in range(len(group) - 1):
-                t1_end = pd.to_datetime(group.loc[i, "EndDate"]).normalize() if pd.notna(group.loc[i, "EndDate"]) else pd.Timestamp.max
+                t1_end = pd.to_datetime(group.loc[i, "EndDate"]).normalize() \
+                    if pd.notna(group.loc[i, "EndDate"]) else pd.Timestamp.max
                 t2_start = pd.to_datetime(group.loc[i + 1, "StartDate"]).normalize()
 
-                if t1_end > t2_start:
+                if t1_end > t2_start:  # only flag if strictly overlaps
                     t1_idx = group.loc[i, "index"]
                     t2_idx = group.loc[i + 1, "index"]
                     overlap_ids = f"{group.loc[i, 'TransactionID']},{group.loc[i + 1, 'TransactionID']}"
 
-                    # Call directly on Series
-                    df.loc[t1_idx] = quarantine(df.loc[t1_idx], f"Overlapping rental with {overlap_ids}")
-                    df.loc[t2_idx] = quarantine(df.loc[t2_idx], f"Overlapping rental with {overlap_ids}")
+                    for idx in [t1_idx, t2_idx]:
+                        # increment quarantine count (0/1/2/3...)
+                        df.loc[idx, "quarantined"] = int(df.loc[idx, "quarantined"]) + 1
+
+                        # append reason
+                        existing_reason = df.loc[idx, "quarantine_reason"]
+                        new_reason = f"Overlapping rental with {overlap_ids}"
+                        if existing_reason:
+                            df.loc[idx, "quarantine_reason"] = f"{existing_reason}; {new_reason}"
+                        else:
+                            df.loc[idx, "quarantine_reason"] = new_reason
 
         # Metadata
         df["pipeline_run_id"] = pipeline_run_id
