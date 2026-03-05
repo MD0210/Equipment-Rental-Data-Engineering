@@ -188,22 +188,37 @@ class MedallionPipeline:
 
                 save_name = filename_map.get(table_name, table_name.lower())
 
-                # Save and register all outputs from transformer
+
+                # Save and register master tables (Silver)
                 for key, df in transformed.items():
-                    # Create consistent file name
-                    save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
-                    df.to_csv(save_path, index=False)
 
-                    detected_type = self._detect_source_type(save_path)
-                    self.pipeline_manager.add_or_get_source(
-                        f"{save_name}_{key}_silver",
-                        detected_type,
-                        save_path
-                    )
+                    if table_name.lower() in ["customer_master", "equipment_master"]:
+                        # Save as usual
+                        save_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
+                        df.to_csv(save_path, index=False)
 
-                # Complete Silver task
-                self.pipeline_manager.complete_task(task_id)
-                return True
+                        # ✅ Register in source table
+                        detected_type = self._detect_source_type(save_path)
+                        self.pipeline_manager.add_or_get_source(
+                            f"{save_name}_clean_silver",
+                            detected_type,
+                            save_path
+                        )
+
+                    elif table_name.lower() == "rental_transactions":
+                        allowed_keys = ["all", "active", "completed", "cancelled"]
+                        if key not in allowed_keys:
+                            continue
+
+                        save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
+                        df.to_csv(save_path, index=False)
+
+                        detected_type = self._detect_source_type(save_path)
+                        self.pipeline_manager.add_or_get_source(
+                            f"{save_name}_{key}_silver",
+                            detected_type,
+                            save_path
+                        )
 
 
             # ============================
@@ -266,16 +281,28 @@ class MedallionPipeline:
                         pipeline_run_id=pipeline_run_id
                     )
 
-                    # Register all Gold outputs
+                    # Register Gold outputs in source table
                     for file in os.listdir(GOLD_DIR):
                         if not file.endswith(".csv"):
                             continue
                         file_path = os.path.join(GOLD_DIR, file)
                         detected_type = self._detect_source_type(file_path)
+                        
+                        # Register without changing content
                         self.pipeline_manager.add_or_get_source(
                             file.replace(".csv", "_gold"),
                             detected_type,
                             file_path
+                        )
+
+                    # Explicitly register equipment_utilisation if generated inside aggregation
+                    equipment_util_path = os.path.join(GOLD_DIR, "equipment_utilisation.csv")
+                    if os.path.exists(equipment_util_path):
+                        detected_type = self._detect_source_type(equipment_util_path)
+                        self.pipeline_manager.add_or_get_source(
+                            "equipment_utilisation_gold",
+                            detected_type,
+                            equipment_util_path
                         )
 
                     # Complete Gold task
