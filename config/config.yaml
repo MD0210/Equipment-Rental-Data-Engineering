@@ -1,3 +1,4 @@
+# config.yaml
 project:
   name: equipment_rental
   base_dir: ./artifacts

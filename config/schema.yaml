@@ -1,4 +1,4 @@
-# Schema definitions for Equipment Hire project
+# Schema.yaml
 
 Equipment_Master:
   columns:

@@ -1,3 +1,4 @@
+# config_entity.py
 from dataclasses import dataclass
 
 @dataclass
