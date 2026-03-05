@@ -129,6 +129,7 @@ class MedallionPipeline:
                     validated, table_name, pipeline_run_id=pipeline_run_id
                 )
 
+                # Mapping for clean filenames
                 filename_map = {
                     "Customer_Master": "customer_master",
                     "Equipment_Master": "equipment_master",
@@ -136,6 +137,7 @@ class MedallionPipeline:
                 }
                 save_name = filename_map.get(table_name, table_name.lower())
 
+                # Iterate over all transformed outputs
                 for key, df in transformed.items():
                     if table_name.lower() in ["customer_master", "equipment_master"]:
                         silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
@@ -145,16 +147,21 @@ class MedallionPipeline:
                             self._detect_source_type(silver_path),
                             silver_path
                         )
+
                     elif table_name.lower() == "rental_transactions":
-                        allowed_keys = ["all", "active", "completed", "cancelled"]
-                        if key not in allowed_keys and key != "equipment_utilisation":
+                        # Handle normal rental outputs and equipment utilisation
+                        if key in ["all", "active", "completed", "cancelled"]:
+                            save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
+                            source_name_silver = f"{key}_silver"
+                        elif key == "equipment_utilisation":
+                            save_path = os.path.join(SILVER_DIR, "equipment_utilisation.csv")
+                            source_name_silver = "equipment_utilisation_silver"
+                        else:
                             continue
-                        save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv") \
-                            if key != "equipment_utilisation" else \
-                            os.path.join(SILVER_DIR, "equipment_utilisation.csv")
+
                         df.to_csv(save_path, index=False)
                         self.pipeline_manager.add_or_get_source(
-                            f"{key}_silver" if key != "equipment_utilisation" else "equipment_utilisation_silver",
+                            source_name_silver,
                             self._detect_source_type(save_path),
                             save_path
                         )
