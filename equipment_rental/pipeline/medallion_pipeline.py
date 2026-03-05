@@ -12,6 +12,8 @@ from equipment_rental.logger.logger import get_logger
 from equipment_rental.exception.exception import PipelineManagerException
 from equipment_rental.constants.constants import BRONZE_DIR, SILVER_DIR, GOLD_DIR
 from equipment_rental.utils.common_utils import save_csv
+from equipment_rental.exception.exception import SLAAlertException, PipelineEmailException
+from equipment_rental.utils.email_utils import send_sla_email
 
 logger = get_logger()
 
@@ -255,10 +257,40 @@ class MedallionPipeline:
             end_time = time.time()
             duration = end_time - start_time
             max_allowed = STAGE_SLA.get(stage)
-            if max_allowed and duration > max_allowed:
-                logger.warning(f"SLA breached for stage {stage}: took {duration:.2f}s, allowed {max_allowed:.2f}s | pipeline_run_id={pipeline_run_id}")
 
-            return True
+            if max_allowed and duration > max_allowed:
+                # Log the SLA breach
+                logger.warning(
+                    f"SLA breached for stage {stage}: took {duration:.2f}s, allowed {max_allowed:.2f}s | pipeline_run_id={pipeline_run_id}"
+                )
+                
+                # Raise SLAAlertException
+                from equipment_rental.exception.exception import SLAAlertException, PipelineEmailException
+                from equipment_rental.utils.email_utils import send_sla_email
+
+                try:
+                    # Email parameters
+                    subject = f"SLA Breach Alert | Stage: {stage} | Pipeline Run: {pipeline_run_id}"
+                    body = (
+                        f"Attention Team,\n\n"
+                        f"The pipeline stage '{stage}' has breached its SLA.\n"
+                        f"Duration: {duration:.2f} seconds | Allowed: {max_allowed:.2f} seconds\n"
+                        f"Pipeline Run ID: {pipeline_run_id}\n\n"
+                        f"Please check the pipeline logs for details.\n"
+                    )
+                    to_emails = ["team@example.com"]        # <-- replace with actual recipients
+                    from_email = "your.email@gmail.com"    # <-- replace with sender email
+                    from_password = "your_password"        # <-- replace with app password or token
+
+                    # Send SLA email
+                    send_sla_email(subject, body, to_emails, from_email, from_password)
+
+                except Exception as e:
+                    # Raise pipeline email exception if sending fails
+                    raise PipelineEmailException(stage, pipeline_run_id, e)
+
+                # Finally, raise SLA alert exception
+                raise SLAAlertException(stage, pipeline_run_id, duration, max_allowed)
 
         except Exception as e:
             if task_id:
