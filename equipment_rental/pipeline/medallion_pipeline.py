@@ -2,6 +2,7 @@
 
 import os
 import pandas as pd
+import sqlite3
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
 from equipment_rental.components.silver_transformation import SilverTransformation
@@ -215,6 +216,7 @@ class MedallionPipeline:
 
                 return True
 
+            # ============================================================
             # ============================================================
             # GOLD
             # ============================================================
