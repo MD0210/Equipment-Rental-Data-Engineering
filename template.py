@@ -26,19 +26,6 @@ list_of_files = [
     f"{project_name}/pipeline/pipeline_manager.py",   
 
     # ========================
-    # CONFIGURATION
-    # ========================
-    f"{project_name}/configuration/__init__.py",
-    f"{project_name}/configuration/configuration.py",
-
-    # ========================
-    # ENTITY (Config + Artifacts)
-    # ========================
-    f"{project_name}/entity/__init__.py",
-    f"{project_name}/entity/config_entity.py",
-    f"{project_name}/entity/artifact_entity.py",
-
-    # ========================
     # CONSTANTS
     # ========================
     f"{project_name}/constants/__init__.py",
@@ -71,12 +58,6 @@ list_of_files = [
     # DATA
     # ========================
     "data/.keep",  # source file
-
-    # ========================
-    # CONFIG FILES
-    # ========================
-    "config/config.yaml",
-    "config/schema.yaml",
 
     # ========================
     # APPLICATION ENTRY
