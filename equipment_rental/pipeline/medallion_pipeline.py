@@ -114,7 +114,7 @@ class MedallionPipeline:
                     f"{table_name}_bronze", detected_type, bronze_path
                 )
 
-                # Single Silver task per table
+                # Start Silver task for the table
                 task_id = self.pipeline_manager.start_task(
                     bronze_source_id, self.silver_folder_id, "silver",
                     pipeline_run_id, schedule_id, batch_id
@@ -139,17 +139,30 @@ class MedallionPipeline:
                     if table_name.lower() in ["customer_master", "equipment_master"]:
                         silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
                         df.to_csv(silver_path, index=False)
+
+                        # ✅ Register Silver master table
                         self.pipeline_manager.add_or_get_source(
                             f"{save_name}_clean_silver",
                             self._detect_source_type(silver_path),
                             silver_path
                         )
+
                     elif table_name.lower() == "rental_transactions":
-                        allowed_keys = ["all", "active", "completed", "cancelled"]
+                        allowed_keys = ["all", "active", "completed", "cancelled", "equipment_utilisation"]
                         if key not in allowed_keys:
                             continue
                         save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
                         df.to_csv(save_path, index=False)
+
+                        # ✅ Register Silver CSV task for rental transactions including equipment utilisation
+                        self.pipeline_manager.start_task(
+                            source_id=bronze_source_id,
+                            target_id=self.silver_folder_id,
+                            stage="silver",
+                            pipeline_run_id=pipeline_run_id,
+                            schedule_id=schedule_id,
+                            batch_id=batch_id
+                        )
                         self.pipeline_manager.add_or_get_source(
                             f"{save_name}_{key}_silver",
                             self._detect_source_type(save_path),
