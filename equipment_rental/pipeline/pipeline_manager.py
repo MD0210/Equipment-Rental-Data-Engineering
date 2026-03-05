@@ -151,17 +151,11 @@ class PipelineManager:
     # ==========================================================
     # SOURCE
     # ==========================================================
-
     def add_or_get_source(self, source_name, source_type, connection_text):
-        """
-        Return source_id, creating source if needed.
-        If the source_type is 'folder', reuse it if the path already exists in DB.
-        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
             if source_type == "folder":
-                # Reuse existing folder source if path matches
                 cursor.execute(
                     "SELECT source_id FROM source WHERE source_type='folder' AND connection_text=?",
                     (connection_text,)
@@ -170,7 +164,6 @@ class PipelineManager:
                 if row:
                     return row[0]
 
-            # Otherwise, look up by source_name
             cursor.execute(
                 "SELECT source_id FROM source WHERE source_name=?",
                 (source_name,)
@@ -179,7 +172,6 @@ class PipelineManager:
             if row:
                 return row[0]
 
-            # Insert new source
             now = datetime.now()
             cursor.execute("""
                 INSERT INTO source (source_name, source_type, connection_text, insert_ts, insert_user)
@@ -188,10 +180,20 @@ class PipelineManager:
             conn.commit()
             return cursor.lastrowid
 
+    def get_source_id_by_name(self, source_name):
+        """
+        Returns source_id for a given source_name, or None if not found.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
     # ==========================================================
     # TASKS
     # ==========================================================
-    def start_task(self, source_id, target_id, stage, schedule_id, batch_id, pipeline_run_id):
+    def start_task(self, source_id, target_id, stage, pipeline_run_id, schedule_id=None, batch_id=None):
         start_ts = datetime.now()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -201,7 +203,7 @@ class PipelineManager:
                     start_ts, insert_ts, insert_user
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (pipeline_run_id, schedule_id, batch_id, source_id, target_id, stage, "running",
-                start_ts, start_ts, "system"))
+                  start_ts, start_ts, "system"))
             conn.commit()
             task_id = cursor.lastrowid
         logger.info(f"Task started | pipeline_run_id={pipeline_run_id} | stage={stage} | batch_id={batch_id}")
