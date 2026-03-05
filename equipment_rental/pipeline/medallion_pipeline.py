@@ -160,6 +160,8 @@ class MedallionPipeline:
 
                     validated = self.silver_validator.validate(bronze_df, table_name, source_file=bronze_path, pipeline_run_id=pipeline_run_id)
                     transformed = self.silver_transformer.transform(validated, table_name, pipeline_run_id=pipeline_run_id)
+                    if table_name.lower() == "rental_transactions" and "quarantine" in transformed:
+                       transformed.pop("quarantine")
 
                     for key, df in transformed.items():
                         save_name = table_name.lower()
