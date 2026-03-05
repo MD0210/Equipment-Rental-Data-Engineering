@@ -25,7 +25,8 @@ equipment_rental/
 ├─ logger/
 │ └─ logger.py
 ├─ utils/
-│ └─ common_utils.py
+│ ├─ common_utils.py
+| └─ email_utils.py
 artifacts/
 ├─ bronze/.keep
 ├─ silver/.keep
@@ -43,7 +44,7 @@ setup.py
 
 ---
 
-## Prerequisites
+## Pre-requisites
 
 - Python ≥ 3.9  
 - Libraries:
