@@ -156,68 +156,103 @@ class MedallionPipeline:
             # SILVER
             # ============================
             elif stage == "silver":
-                bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
-                if not os.path.exists(bronze_path):
-                    raise FileNotFoundError(f"Bronze file not found: {bronze_path}")
 
-                detected_type = self._detect_source_type(bronze_path)
-                bronze_source_id = self.pipeline_manager.add_or_get_source(
-                    f"{table_name}_bronze", detected_type, bronze_path
-                )
+                bronze_files = [
+                    f for f in os.listdir(BRONZE_DIR)
+                    if f.endswith(".csv")
+                ]
 
-                task_id = self.pipeline_manager.start_task(
-                    bronze_source_id, self.silver_folder_id, "silver",
-                    pipeline_run_id, schedule_id, batch_id
-                )
+                if not bronze_files:
+                    raise FileNotFoundError("No Bronze files found")
 
-                bronze_df = pd.read_csv(bronze_path)
-                validated = self.silver_validator.validate(
-                    bronze_df, table_name, source_file=file_path, pipeline_run_id=pipeline_run_id
-                )
+                for bronze_file in bronze_files:
 
-                transformed = self.silver_transformer.transform(
-                    validated, table_name, pipeline_run_id=pipeline_run_id
-                )
+                    table_name = bronze_file.replace(".csv", "")
+                    bronze_path = os.path.join(BRONZE_DIR, bronze_file)
 
-                # Standardized source names for Silver
-                source_name_map = {
-                    "all": "rental_transactions_all_silver",
-                    "completed": "rental_transactions_completed_silver",
-                    "cancelled": "rental_transactions_cancelled_silver",
-                    "equipment_utilisation": "equipment_utilisation_silver"
-                }
+                    detected_type = self._detect_source_type(bronze_path)
 
-                # Mapping for clean filenames
-                filename_map = {
-                    "Customer_Master": "customer_master",
-                    "Equipment_Master": "equipment_master",
-                    "Rental_Transactions": "rental_transactions"
-                }
-                save_name = filename_map.get(table_name, table_name.lower())
+                    bronze_source_id = self.pipeline_manager.add_or_get_source(
+                        f"{table_name}_bronze",
+                        detected_type,
+                        bronze_path
+                    )
 
-                for key, df in transformed.items():
-                    if table_name.lower() in ["customer_master", "equipment_master"]:
-                        silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
-                        df.to_csv(silver_path, index=False)
-                        self.pipeline_manager.add_or_get_source(
-                            f"{save_name}_clean_silver",
-                            self._detect_source_type(silver_path),
-                            silver_path
-                        )
-                    elif table_name.lower() == "rental_transactions":
-                        if key in source_name_map:
-                            save_path = os.path.join(
-                                SILVER_DIR,
-                                "equipment_utilisation.csv" if key == "equipment_utilisation" else f"{save_name}_{key}.csv"
-                            )
-                            df.to_csv(save_path, index=False)
+                    task_id = self.pipeline_manager.start_task(
+                        bronze_source_id,
+                        self.silver_folder_id,
+                        "silver",
+                        pipeline_run_id,
+                        schedule_id,
+                        batch_id
+                    )
+
+                    logger.info(f"Processing Bronze table → Silver: {table_name}")
+
+                    bronze_df = pd.read_csv(bronze_path)
+
+                    validated = self.silver_validator.validate(
+                        bronze_df,
+                        table_name,
+                        source_file=bronze_path,
+                        pipeline_run_id=pipeline_run_id
+                    )
+
+                    transformed = self.silver_transformer.transform(
+                        validated,
+                        table_name,
+                        pipeline_run_id=pipeline_run_id
+                    )
+
+                    # Standardized source names for Silver
+                    source_name_map = {
+                        "all": "rental_transactions_all_silver",
+                        "completed": "rental_transactions_completed_silver",
+                        "cancelled": "rental_transactions_cancelled_silver",
+                        "equipment_utilisation": "equipment_utilisation_silver"
+                    }
+
+                    filename_map = {
+                        "Customer_Master": "customer_master",
+                        "Equipment_Master": "equipment_master",
+                        "Rental_Transactions": "rental_transactions"
+                    }
+
+                    save_name = filename_map.get(table_name, table_name.lower())
+
+                    for key, df in transformed.items():
+
+                        if table_name.lower() in ["customer_master", "equipment_master"]:
+
+                            silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
+                            df.to_csv(silver_path, index=False)
+
                             self.pipeline_manager.add_or_get_source(
-                                source_name_map[key],
-                                self._detect_source_type(save_path),
-                                save_path
+                                f"{save_name}_clean_silver",
+                                self._detect_source_type(silver_path),
+                                silver_path
                             )
 
-                self.pipeline_manager.complete_task(task_id)
+                        elif table_name.lower() == "rental_transactions":
+
+                            if key in source_name_map:
+
+                                save_path = os.path.join(
+                                    SILVER_DIR,
+                                    "equipment_utilisation.csv"
+                                    if key == "equipment_utilisation"
+                                    else f"{save_name}_{key}.csv"
+                                )
+
+                                df.to_csv(save_path, index=False)
+
+                                self.pipeline_manager.add_or_get_source(
+                                    source_name_map[key],
+                                    self._detect_source_type(save_path),
+                                    save_path
+                                )
+
+                    self.pipeline_manager.complete_task(task_id)
 
             # ============================
             # GOLD
