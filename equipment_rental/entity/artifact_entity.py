@@ -7,10 +7,10 @@ class BronzeArtifact:
 
 @dataclass
 class SilverArtifact:
-    active_file: str
-    completed_file: str
-    cancelled_file: str
-    all_file: str
+    rental_transactions_active_file: str
+    rental_transactions_completed_file: str
+    rental_transactions_cancelled_file: str
+    rental_transactions_all_file: str
     quarantine_file: str
 
 @dataclass

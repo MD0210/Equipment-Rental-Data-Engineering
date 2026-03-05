@@ -27,6 +27,8 @@ class PipelineManagerConfig:
     source_table: str
     schedule_table: str
     batch_table: str
+    pipeline_run_table: str
+    pipeline_watermark_table: str
     task_table: str
 
 @dataclass
