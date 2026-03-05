@@ -1,5 +1,3 @@
-# equipment_rental/pipeline/medallion_pipeline.py
-
 import os
 import pandas as pd
 import sqlite3
@@ -39,7 +37,6 @@ class MedallionPipeline:
             "Gold", "folder", GOLD_DIR
         )
 
-    # Detect source type
     def _detect_source_type(self, connection_text: str):
         if not connection_text or "." not in connection_text:
             return "folder"
@@ -51,7 +48,6 @@ class MedallionPipeline:
         else:
             return ext
 
-    # Run Medallion pipeline
     def run(
         self,
         source_name,
@@ -70,46 +66,35 @@ class MedallionPipeline:
                 f"Pipeline stage started | table={table_name} | stage={stage} | pipeline_run_id={pipeline_run_id}"
             )
 
-            # ============================================================
+            # ============================
             # BRONZE
-            # ============================================================
+            # ============================
             if stage == "bronze":
                 connection = file_path or (db_query["connection_str"] if db_query else None)
                 detected_type = self._detect_source_type(connection)
 
                 source_id = self.pipeline_manager.add_or_get_source(
-                    source_name,
-                    detected_type,
-                    connection
+                    source_name, detected_type, connection
                 )
 
                 task_id = self.pipeline_manager.start_task(
-                    source_id,
-                    self.bronze_folder_id,
-                    "bronze",
-                    pipeline_run_id,
-                    schedule_id,
-                    batch_id
+                    source_id, self.bronze_folder_id, "bronze",
+                    pipeline_run_id, schedule_id, batch_id
                 )
 
                 # Ingest
                 if detected_type == "excel":
                     bronze_df, _ = self.bronze.ingest_excel(
-                        file_path,
-                        sheet_name=table_name,
-                        pipeline_run_id=pipeline_run_id
+                        file_path, sheet_name=table_name, pipeline_run_id=pipeline_run_id
                     )
                 elif detected_type == "csv":
                     bronze_df, _ = self.bronze.ingest_csv(
-                        file_path=file_path,
-                        pipeline_run_id=pipeline_run_id
+                        file_path=file_path, pipeline_run_id=pipeline_run_id
                     )
                 elif detected_type == "db" and db_query:
                     bronze_df, _ = self.bronze.ingest_db(
-                        db_query["connection_str"],
-                        db_query["query"],
-                        table_name,
-                        pipeline_run_id
+                        db_query["connection_str"], db_query["query"],
+                        table_name, pipeline_run_id
                     )
                 else:
                     raise ValueError("Invalid Bronze source configuration")
@@ -117,9 +102,9 @@ class MedallionPipeline:
                 self.pipeline_manager.complete_task(task_id)
                 return bronze_df
 
-            # ============================================================
+            # ============================
             # SILVER
-            # ============================================================
+            # ============================
             elif stage == "silver":
                 bronze_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
                 if not os.path.exists(bronze_path):
@@ -127,37 +112,39 @@ class MedallionPipeline:
 
                 detected_type = self._detect_source_type(bronze_path)
                 bronze_source_id = self.pipeline_manager.add_or_get_source(
-                    f"{table_name}_bronze",
-                    detected_type,
-                    bronze_path
+                    f"{table_name}_bronze", detected_type, bronze_path
                 )
+
+                # Determine output path
+                if table_name.lower() in ["customer_master", "equipment_master"]:
+                    silver_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_clean.csv")
+                else:
+                    silver_path = os.path.join(SILVER_DIR, f"{table_name.lower()}_all.csv")
+
+                # ✅ Skip Silver if already exists
+                if os.path.exists(silver_path):
+                    logger.info(f"Silver CSV already exists, skipping Silver processing: {silver_path}")
+                    self.pipeline_manager.add_or_get_source(
+                        f"{table_name}_silver",
+                        self._detect_source_type(silver_path),
+                        silver_path
+                    )
+                    return True
 
                 # Start Silver task
                 task_id = self.pipeline_manager.start_task(
-                    bronze_source_id,
-                    self.silver_folder_id,
-                    "silver",
-                    pipeline_run_id,
-                    schedule_id,
-                    batch_id
+                    bronze_source_id, self.silver_folder_id, "silver",
+                    pipeline_run_id, schedule_id, batch_id
                 )
 
                 bronze_df = pd.read_csv(bronze_path)
-
                 validated = self.silver_validator.validate(
-                    bronze_df,
-                    table_name,
-                    source_file=file_path,
-                    pipeline_run_id=pipeline_run_id
+                    bronze_df, table_name, source_file=file_path, pipeline_run_id=pipeline_run_id
                 )
-
                 transformed = self.silver_transformer.transform(
-                    validated,
-                    table_name,
-                    pipeline_run_id=pipeline_run_id
+                    validated, table_name, pipeline_run_id=pipeline_run_id
                 )
 
-                # Map table names
                 filename_map = {
                     "Customer_Master": "customer_master",
                     "Equipment_Master": "equipment_master",
@@ -165,17 +152,13 @@ class MedallionPipeline:
                 }
                 save_name = filename_map.get(table_name, table_name.lower())
 
-                # Save transformed files and register in source
                 for key, df in transformed.items():
                     if table_name.lower() in ["customer_master", "equipment_master"]:
-                        save_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
-                        df.to_csv(save_path, index=False)
-
-                        detected_type = self._detect_source_type(save_path)
+                        df.to_csv(silver_path, index=False)
                         self.pipeline_manager.add_or_get_source(
                             f"{save_name}_clean_silver",
-                            detected_type,
-                            save_path
+                            self._detect_source_type(silver_path),
+                            silver_path
                         )
                     elif table_name.lower() == "rental_transactions":
                         allowed_keys = ["all", "active", "completed", "cancelled"]
@@ -183,27 +166,23 @@ class MedallionPipeline:
                             continue
                         save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
                         df.to_csv(save_path, index=False)
-
-                        detected_type = self._detect_source_type(save_path)
                         self.pipeline_manager.add_or_get_source(
                             f"{save_name}_{key}_silver",
-                            detected_type,
+                            self._detect_source_type(save_path),
                             save_path
                         )
 
-                # ✅ Complete Silver task
                 self.pipeline_manager.complete_task(task_id)
                 return True
 
-            # ============================================================
+            # ============================
             # GOLD
-            # ============================================================
+            # ============================
             elif stage == "gold":
                 if table_name.lower() != "rental_transactions":
                     logger.info(f"Skipping Gold stage for table: {table_name}")
                     return True
 
-                # Ensure Silver master tables exist
                 master_paths = [
                     os.path.join(SILVER_DIR, "customer_master_clean.csv"),
                     os.path.join(SILVER_DIR, "equipment_master_clean.csv")
@@ -212,11 +191,9 @@ class MedallionPipeline:
                     if not os.path.exists(path):
                         raise FileNotFoundError(f"Missing Silver file: {path}")
 
-                # Load master tables
                 customer_df = pd.read_csv(master_paths[0])
                 equipment_df = pd.read_csv(master_paths[1])
 
-                # Get all Silver rental transaction sources
                 rental_files = sorted(
                     f for f in os.listdir(SILVER_DIR)
                     if f.startswith("rental_transactions") and f.endswith(".csv")
@@ -228,28 +205,28 @@ class MedallionPipeline:
                     rental_path = os.path.join(SILVER_DIR, rental_file)
                     detected_type = self._detect_source_type(rental_path)
 
-                    # ✅ Fetch existing Silver source
+                    # ✅ Use existing Silver source
                     silver_source_name = rental_file.replace(".csv", "") + "_silver"
                     silver_source_id = self.pipeline_manager.get_source_id_by_name(silver_source_name)
                     if not silver_source_id:
                         raise PipelineManagerException(f"Silver source not found: {silver_source_name}")
 
-                    # ✅ Get the completed Silver task for this pipeline_run_id
+                    # ✅ Get last completed Silver task
                     with sqlite3.connect(self.pipeline_manager.db_path) as conn:
                         cursor = conn.cursor()
                         cursor.execute("""
                             SELECT schedule_id, batch_id
                             FROM task
-                            WHERE source_id=? AND stage='silver' AND pipeline_run_id=?
+                            WHERE source_id=? AND stage='silver' AND status='success'
                             ORDER BY task_id DESC
                             LIMIT 1
-                        """, (silver_source_id, pipeline_run_id))
+                        """, (silver_source_id,))
                         row = cursor.fetchone()
                         if not row:
                             raise PipelineManagerException(f"No completed Silver task found for {silver_source_name}")
                         gold_schedule_id, gold_batch_id = row
 
-                    # Start Gold task with correct Silver IDs
+                    # Start Gold task
                     gold_task_id = self.pipeline_manager.start_task(
                         source_id=silver_source_id,
                         target_id=self.gold_folder_id,
@@ -259,7 +236,6 @@ class MedallionPipeline:
                         batch_id=gold_batch_id
                     )
 
-                    # Read Silver CSV and aggregate
                     rental_df = pd.read_csv(rental_path)
                     self.gold.aggregate(
                         rental_df=rental_df,
@@ -268,29 +244,26 @@ class MedallionPipeline:
                         pipeline_run_id=pipeline_run_id
                     )
 
-                    # Register Gold outputs (without affecting CSVs)
+                    # Register Gold outputs
                     for file in os.listdir(GOLD_DIR):
                         if not file.endswith(".csv"):
                             continue
                         file_path = os.path.join(GOLD_DIR, file)
-                        detected_type = self._detect_source_type(file_path)
                         self.pipeline_manager.add_or_get_source(
                             file.replace(".csv", "_gold"),
-                            detected_type,
+                            self._detect_source_type(file_path),
                             file_path
                         )
 
-                    # Register equipment_utilisation explicitly if exists
+                    # Register equipment_utilisation explicitly
                     util_path = os.path.join(GOLD_DIR, "equipment_utilisation.csv")
                     if os.path.exists(util_path):
-                        detected_type = self._detect_source_type(util_path)
                         self.pipeline_manager.add_or_get_source(
                             "equipment_utilisation_gold",
-                            detected_type,
+                            self._detect_source_type(util_path),
                             util_path
                         )
 
-                    # Complete Gold task
                     self.pipeline_manager.complete_task(gold_task_id)
 
                 return True
@@ -301,11 +274,9 @@ class MedallionPipeline:
         except Exception as e:
             if task_id:
                 self.pipeline_manager.fail_task(task_id, str(e))
-
             logger.error(
                 f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}"
             )
-
             raise PipelineManagerException(
                 f"Medallion pipeline execution failed: {str(e)}"
             )
