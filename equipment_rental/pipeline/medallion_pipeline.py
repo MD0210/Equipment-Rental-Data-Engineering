@@ -190,7 +190,7 @@ class MedallionPipeline:
                         raise FileNotFoundError(f"Missing Silver file: {path}")
                     master_dfs[table] = pd.read_csv(path)
 
-                # Process rental_transactions Gold
+                # Only process unique Silver rental files
                 rental_files = sorted(
                     f for f in os.listdir(SILVER_DIR)
                     if f.startswith("rental_transactions") and f.endswith(".csv")
@@ -198,7 +198,8 @@ class MedallionPipeline:
                 if not rental_files:
                     raise FileNotFoundError("No rental transaction Silver files found")
 
-                processed_files = set()  # Prevent duplicate processing
+                processed_files = set()
+                gold_task_id = None
 
                 for rental_file in rental_files:
                     if rental_file in processed_files:
@@ -217,6 +218,7 @@ class MedallionPipeline:
                             rental_path
                         )
 
+                    # Start Gold task once (per Silver file)
                     gold_task_id = self.pipeline_manager.start_task(
                         source_id=silver_source_id,
                         target_id=self.gold_folder_id,
@@ -234,18 +236,20 @@ class MedallionPipeline:
                         pipeline_run_id=pipeline_run_id
                     )
 
-                    # Register Gold outputs (prevent duplicates)
-                    for file in os.listdir(GOLD_DIR):
-                        if file.endswith(".csv"):
-                            file_path = os.path.join(GOLD_DIR, file)
-                            source_name = file.replace(".csv", "_gold")
-                            if not self.pipeline_manager.get_source_id_by_name(source_name):
-                                self.pipeline_manager.add_or_get_source(
-                                    source_name,
-                                    self._detect_source_type(file_path),
-                                    file_path
-                                )
+                # Register all Gold outputs once, after aggregation
+                for file in os.listdir(GOLD_DIR):
+                    if file.endswith(".csv"):
+                        file_path = os.path.join(GOLD_DIR, file)
+                        source_name = file.replace(".csv", "_gold")
+                        if not self.pipeline_manager.get_source_id_by_name(source_name):
+                            self.pipeline_manager.add_or_get_source(
+                                source_name,
+                                self._detect_source_type(file_path),
+                                file_path
+                            )
 
+                # Complete the Gold task once
+                if gold_task_id:
                     self.pipeline_manager.complete_task(gold_task_id)
 
             else:
