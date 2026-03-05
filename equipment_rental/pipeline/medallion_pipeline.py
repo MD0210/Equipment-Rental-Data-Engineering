@@ -205,13 +205,15 @@ class MedallionPipeline:
                     rental_path = os.path.join(SILVER_DIR, rental_file)
                     detected_type = self._detect_source_type(rental_path)
 
-                    # ✅ Use existing Silver source
+                    # ✅ Use existing Silver source or register if missing
                     silver_source_name = rental_file.replace(".csv", "") + "_silver"
-                    silver_source_id = self.pipeline_manager.get_source_id_by_name(silver_source_name)
-                    if not silver_source_id:
-                        raise PipelineManagerException(f"Silver source not found: {silver_source_name}")
+                    silver_source_id = self.pipeline_manager.add_or_get_source(
+                        silver_source_name,
+                        detected_type,
+                        rental_path
+                    )
 
-                    # ✅ Get last completed Silver task
+                    # ✅ Get last completed Silver task, ignore pipeline_run_id
                     with sqlite3.connect(self.pipeline_manager.db_path) as conn:
                         cursor = conn.cursor()
                         cursor.execute("""
@@ -223,8 +225,10 @@ class MedallionPipeline:
                         """, (silver_source_id,))
                         row = cursor.fetchone()
                         if not row:
-                            raise PipelineManagerException(f"No completed Silver task found for {silver_source_name}")
-                        gold_schedule_id, gold_batch_id = row
+                            logger.warning(f"No completed Silver task found for {silver_source_name}, proceeding anyway.")
+                            gold_schedule_id, gold_batch_id = schedule_id, batch_id
+                        else:
+                            gold_schedule_id, gold_batch_id = row
 
                     # Start Gold task
                     gold_task_id = self.pipeline_manager.start_task(
