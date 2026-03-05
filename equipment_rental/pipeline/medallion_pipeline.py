@@ -55,7 +55,7 @@ class MedallionPipeline:
             source_type,
             table_name,
             stage,
-            batch_type="full",             # <-- new param
+            batch_type="full",
             file_path=None,
             db_query=None,
             pipeline_run_id=None,
@@ -74,7 +74,6 @@ class MedallionPipeline:
             if stage == "bronze":
                 connection = file_path or (db_query["connection_str"] if db_query else None)
                 detected_type = self._detect_source_type(connection)
-
                 source_id = self.pipeline_manager.add_or_get_source(source_name, detected_type, connection)
 
                 task_id = self.pipeline_manager.start_task(
@@ -82,37 +81,42 @@ class MedallionPipeline:
                     pipeline_run_id, schedule_id, batch_id
                 )
 
-                # Handle Excel source
+                # Determine incremental filter
+                last_watermark = self.pipeline_manager.get_last_watermark(source_id, "bronze")
+
+                # Excel source
                 if detected_type == "excel":
                     sheets = pd.read_excel(connection, sheet_name=None)
                     bronze_outputs = {}
                     for sheet_name, df in sheets.items():
                         save_path = os.path.join(BRONZE_DIR, f"{sheet_name}.csv")
-                        if batch_type == "incremental" and os.path.exists(save_path):
-                            existing_df = pd.read_csv(save_path)
-                            df = pd.concat([existing_df, df]).drop_duplicates()
+                        if batch_type == "incremental" and last_watermark is not None:
+                            df = df[df["LastUpdated"] > last_watermark]  # assumes LastUpdated column
+                            if os.path.exists(save_path):
+                                existing_df = pd.read_csv(save_path)
+                                df = pd.concat([existing_df, df]).drop_duplicates()
                         df.to_csv(save_path, index=False)
                         bronze_outputs[sheet_name] = df
                         self.pipeline_manager.add_or_get_source(f"{sheet_name}_bronze", "csv", save_path)
                     bronze_df = bronze_outputs
 
-                # Handle CSV source
+                # CSV source
                 elif detected_type == "csv":
                     bronze_df, _ = self.bronze.ingest_csv(file_path=file_path, pipeline_run_id=pipeline_run_id)
                     save_path = file_path
-                    if batch_type == "incremental" and os.path.exists(save_path):
-                        existing_df = pd.read_csv(save_path)
-                        bronze_df = pd.concat([existing_df, bronze_df]).drop_duplicates()
+                    if batch_type == "incremental" and last_watermark is not None:
+                        bronze_df = bronze_df[bronze_df["LastUpdated"] > last_watermark]
+                        if os.path.exists(save_path):
+                            existing_df = pd.read_csv(save_path)
+                            bronze_df = pd.concat([existing_df, bronze_df]).drop_duplicates()
                     bronze_df.to_csv(save_path, index=False)
                     self.pipeline_manager.add_or_get_source(f"{table_name}_bronze", "csv", save_path)
 
-                # Handle DB source
+                # Database source
                 elif detected_type == "db" and db_query:
-                    last_run = self.pipeline_manager.get_last_run_timestamp(table_name)
                     query = db_query["query"]
-                    if batch_type == "incremental" and last_run:
-                        # Assuming table has "LastUpdated" column
-                        query += f" WHERE LastUpdated > '{last_run}'"
+                    if batch_type == "incremental" and last_watermark is not None:
+                        query += f" WHERE LastUpdated > '{last_watermark}'"
                     bronze_df, _ = self.bronze.ingest_db(db_query["connection_str"], query, table_name, pipeline_run_id)
                     save_path = os.path.join(BRONZE_DIR, f"{table_name}.csv")
                     if batch_type == "incremental" and os.path.exists(save_path):
@@ -121,8 +125,12 @@ class MedallionPipeline:
                     bronze_df.to_csv(save_path, index=False)
                     self.pipeline_manager.add_or_get_source(f"{table_name}_bronze", "csv", save_path)
 
+                # Update watermark
+                if batch_type == "incremental" and not bronze_df.empty:
+                    max_timestamp = bronze_df["LastUpdated"].max()
+                    self.pipeline_manager.update_watermark(source_id, "bronze", max_timestamp)
+
                 self.pipeline_manager.complete_task(task_id)
-                self.pipeline_manager.update_last_run_timestamp(table_name)
 
             # ============================
             # SILVER
@@ -143,6 +151,10 @@ class MedallionPipeline:
                     )
 
                     bronze_df = pd.read_csv(bronze_path)
+                    last_watermark = self.pipeline_manager.get_last_watermark(bronze_source_id, "silver")
+                    if batch_type == "incremental" and last_watermark is not None:
+                        bronze_df = bronze_df[bronze_df["LastUpdated"] > last_watermark]
+
                     validated = self.silver_validator.validate(bronze_df, table_name, source_file=bronze_path, pipeline_run_id=pipeline_run_id)
                     transformed = self.silver_transformer.transform(validated, table_name, pipeline_run_id=pipeline_run_id)
 
@@ -177,8 +189,12 @@ class MedallionPipeline:
                                 df.to_csv(save_path, index=False)
                                 self.pipeline_manager.add_or_get_source(source_name_map[key], "csv", save_path)
 
+                    # Update watermark
+                    if batch_type == "incremental" and not bronze_df.empty:
+                        max_timestamp = bronze_df["LastUpdated"].max()
+                        self.pipeline_manager.update_watermark(bronze_source_id, "silver", max_timestamp)
+
                     self.pipeline_manager.complete_task(task_id)
-                    self.pipeline_manager.update_last_run_timestamp(table_name)
 
             # ============================
             # GOLD
@@ -195,7 +211,6 @@ class MedallionPipeline:
                     silver_source_id = self.pipeline_manager.add_or_get_source(f"{table_name}_silver", "csv", path)
                     silver_dfs[table_name] = pd.read_csv(path)
 
-                # Identify required datasets
                 rental_df = silver_dfs.get("rental_transactions_all")
                 customer_df = silver_dfs.get("customer_master_clean")
                 equipment_df = silver_dfs.get("equipment_master_clean")
@@ -240,7 +255,6 @@ class MedallionPipeline:
             if max_allowed and duration > max_allowed:
                 logger.warning(f"SLA breached for stage {stage}: took {duration:.2f}s, allowed {max_allowed:.2f}s | pipeline_run_id={pipeline_run_id}")
 
-            # Return success (for Bronze, we return DataFrame)
             return bronze_df if stage == "bronze" else True
 
         except Exception as e:

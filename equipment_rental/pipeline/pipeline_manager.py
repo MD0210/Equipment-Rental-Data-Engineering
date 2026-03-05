@@ -23,6 +23,7 @@ class PipelineManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
+            # Source table
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS source (
                 source_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +37,7 @@ class PipelineManager:
             )
             """)
 
+            # Schedule table
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS schedule (
                 schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +56,7 @@ class PipelineManager:
             )
             """)
 
+            # Batch table
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS batch (
                 batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +73,7 @@ class PipelineManager:
             )
             """)
 
+            # Pipeline run table
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_run (
                 pipeline_run_id TEXT PRIMARY KEY,
@@ -83,6 +87,7 @@ class PipelineManager:
             )
             """)
 
+            # Task table
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS task (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +106,21 @@ class PipelineManager:
                 insert_user TEXT,
                 update_ts TEXT,
                 update_user TEXT
+            )
+            """)
+
+            # Watermark table for incremental loads
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_watermark (
+                watermark_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER,
+                stage TEXT,
+                last_watermark TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT,
+                UNIQUE(source_id, stage)
             )
             """)
 
@@ -181,9 +201,6 @@ class PipelineManager:
             return cursor.lastrowid
 
     def get_source_id_by_name(self, source_name):
-        """
-        Returns source_id for a given source_name, or None if not found.
-        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
@@ -255,3 +272,32 @@ class PipelineManager:
                 END
             """, (pipeline_run_id,))
             return cursor.fetchall()
+
+    # ==========================================================
+    # WATERMARKS (INCREMENTAL)
+    # ==========================================================
+    def get_last_watermark(self, source_id, stage):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT last_watermark
+                FROM pipeline_watermark
+                WHERE source_id=? AND stage=?
+            """, (source_id, stage))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def update_watermark(self, source_id, stage, last_watermark):
+        now = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO pipeline_watermark (source_id, stage, last_watermark, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source_id, stage) DO UPDATE SET
+                    last_watermark=excluded.last_watermark,
+                    update_ts=?,
+                    update_user=?
+            """, (source_id, stage, last_watermark, now, "system", now, "system"))
+            conn.commit()
+        logger.info(f"Watermark updated | source_id={source_id} | stage={stage} | last_watermark={last_watermark}")
