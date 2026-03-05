@@ -10,11 +10,18 @@ def get_logger(name="equipment_rental"):
 
     logger.setLevel(logging.INFO)
 
-    # Create logs directory if not exists
-    log_dir = "logs"
+    # Create year/month/day folder structure
+    now = datetime.now()
+    log_dir = os.path.join(
+        "logs",
+        str(now.year),
+        f"{now.month:02d}",
+        f"{now.day:02d}"
+    )
     os.makedirs(log_dir, exist_ok=True)
 
-    log_file = os.path.join(log_dir, "pipeline.log")
+    # Log file name with timestamp
+    log_file = os.path.join(log_dir, f"{now.strftime('%Y%m%d_%H%M%S')}.log")
 
     # Formatter including filename and line number
     formatter = logging.Formatter(
