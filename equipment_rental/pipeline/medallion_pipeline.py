@@ -296,6 +296,16 @@ class MedallionPipeline:
 
                     self.pipeline_manager.complete_task(task_id)
 
+                return True
+
+            else:
+                raise ValueError(f"Invalid stage: {stage}")
+
+        except Exception as e:
+
+            if task_id:
+                self.pipeline_manager.fail_task(task_id, str(e))
+
             logger.error(
                 f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}"
             )
