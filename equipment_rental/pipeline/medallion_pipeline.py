@@ -269,30 +269,35 @@ class MedallionPipeline:
                         batch_id=batch_id
                     )
 
-                    # Read the rental CSV
-                    rental_df = pd.read_csv(rental_path)
+                    # Read and concatenate all rental CSVs
+                    rental_df = pd.concat(
+                        [pd.read_csv(os.path.join(SILVER_DIR, f)) for f in rental_files],
+                        ignore_index=True
+                    )
 
-                    # Run Gold aggregation
+                    # Create a single Gold task
+                    gold_source_id = self.pipeline_manager.add_or_get_source(
+                        f"{table_name}_silver",
+                        "folder",  # or "csv" if you prefer a main CSV
+                        SILVER_DIR
+                    )
+
+                    task_id = self.pipeline_manager.start_task(
+                        source_id=gold_source_id,
+                        target_id=self.gold_folder_id,
+                        stage="gold",
+                        pipeline_run_id=pipeline_run_id,
+                        schedule_id=schedule_id,
+                        batch_id=batch_id
+                    )
+
+                    # Aggregate
                     self.gold.aggregate(
                         rental_df=rental_df,
                         customer_df=customer_df,
                         equipment_df=equipment_df,
                         pipeline_run_id=pipeline_run_id
                     )
-
-                    # Register the Gold outputs
-                    for file in os.listdir(GOLD_DIR):
-                        if not file.endswith(".csv"):
-                            continue
-
-                        file_path = os.path.join(GOLD_DIR, file)
-                        detected_type = self._detect_source_type(file_path)
-
-                        self.pipeline_manager.add_or_get_source(
-                            file.replace(".csv", "_gold"),
-                            detected_type,
-                            file_path
-                        )
 
                     self.pipeline_manager.complete_task(task_id)
 
