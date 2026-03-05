@@ -221,76 +221,80 @@ class MedallionPipeline:
 
             elif stage == "gold":
 
-                # Run Gold only for the fact table: Rental_Transactions
+                # Only run Gold for fact table
                 if table_name.lower() != "rental_transactions":
                     logger.info(f"Skipping Gold stage for table: {table_name}")
                     return True
 
-                detected_type = self._detect_source_type(SILVER_DIR)
+                # Get all Silver sources for Rental_Transactions
+                rental_files = [
+                    f for f in os.listdir(SILVER_DIR)
+                    if f.startswith("rental_transactions") and f.endswith(".csv")
+                ]
 
-                silver_source_id = self.pipeline_manager.add_or_get_source(
-                    f"{table_name}_silver",
-                    detected_type,
-                    SILVER_DIR
-                )
+                if not rental_files:
+                    raise FileNotFoundError("No rental transaction Silver files found")
 
-                task_id = self.pipeline_manager.start_task(
-                    silver_source_id,
-                    self.gold_folder_id,
-                    "gold",
-                    pipeline_run_id,
-                    schedule_id,
-                    batch_id
-                )
-
-                # Check required Silver master tables
+                # Also ensure master tables exist
                 required_masters = [
                     os.path.join(SILVER_DIR, "customer_master_clean.csv"),
                     os.path.join(SILVER_DIR, "equipment_master_clean.csv")
                 ]
-
                 for path in required_masters:
                     if not os.path.exists(path):
                         raise FileNotFoundError(f"Missing Silver file: {path}")
 
-                # Only load the "all" rental_transactions file to avoid duplicates
-                rental_df = pd.read_csv(os.path.join(SILVER_DIR, "rental_transactions_all.csv"))
+                # Read master tables once
                 customer_df = pd.read_csv(os.path.join(SILVER_DIR, "customer_master_clean.csv"))
                 equipment_df = pd.read_csv(os.path.join(SILVER_DIR, "equipment_master_clean.csv"))
 
-                # Run Gold aggregation
-                self.gold.aggregate(
-                    rental_df=rental_df,
-                    customer_df=customer_df,
-                    equipment_df=equipment_df,
-                    pipeline_run_id=pipeline_run_id
-                )
+                # Loop through each Silver rental file and create a task for it
+                for rental_file in rental_files:
 
-                # Register all Gold CSV outputs
-                for file in os.listdir(GOLD_DIR):
-                    if not file.endswith(".csv"):
-                        continue
+                    rental_path = os.path.join(SILVER_DIR, rental_file)
+                    detected_type = self._detect_source_type(rental_path)
 
-                    file_path = os.path.join(GOLD_DIR, file)
-                    detected_type = self._detect_source_type(file_path)
-
-                    self.pipeline_manager.add_or_get_source(
-                        file.replace(".csv", "_gold"),
+                    silver_source_id = self.pipeline_manager.add_or_get_source(
+                        f"{rental_file.replace('.csv', '')}_silver",
                         detected_type,
-                        file_path
+                        rental_path
                     )
 
-                self.pipeline_manager.complete_task(task_id)
+                    task_id = self.pipeline_manager.start_task(
+                        source_id=silver_source_id,
+                        target_id=self.gold_folder_id,
+                        stage="gold",
+                        pipeline_run_id=pipeline_run_id,
+                        schedule_id=schedule_id,
+                        batch_id=batch_id
+                    )
 
-                return True
+                    # Read the rental CSV
+                    rental_df = pd.read_csv(rental_path)
 
-            else:
-                raise ValueError(f"Invalid stage: {stage}")
+                    # Run Gold aggregation
+                    self.gold.aggregate(
+                        rental_df=rental_df,
+                        customer_df=customer_df,
+                        equipment_df=equipment_df,
+                        pipeline_run_id=pipeline_run_id
+                    )
 
-        except Exception as e:
+                    # Register the Gold outputs
+                    for file in os.listdir(GOLD_DIR):
+                        if not file.endswith(".csv"):
+                            continue
 
-            if task_id:
-                self.pipeline_manager.fail_task(task_id, str(e))
+                        file_path = os.path.join(GOLD_DIR, file)
+                        detected_type = self._detect_source_type(file_path)
+
+                        self.pipeline_manager.add_or_get_source(
+                            file.replace(".csv", "_gold"),
+                            detected_type,
+                            file_path
+                        )
+
+                    self.pipeline_manager.complete_task(task_id)
 
             logger.error(
                 f"Pipeline stage failed | table={table_name} | stage={stage} | error={str(e)}"
