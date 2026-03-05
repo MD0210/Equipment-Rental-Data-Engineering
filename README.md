@@ -7,7 +7,7 @@ This project demonstrates a **Medallion Architecture** (Bronze → Silver → Go
 It is built in **Python** using **Pandas** and designed to simulate a Microsoft Fabric-like data engineering workflow.  
 
 ---
-
+`````
 equipment_rental/
 ├─ components/
 │ ├─ bronze_ingestion.py
@@ -39,7 +39,7 @@ requirements.txt
 Dockerfile
 .dockerignore
 setup.py
-
+`````
 
 ---
 
