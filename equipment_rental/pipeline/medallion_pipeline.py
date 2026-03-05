@@ -218,7 +218,6 @@ class MedallionPipeline:
             # ============================================================
             # GOLD
             # ============================================================
-
             elif stage == "gold":
 
                 if table_name.lower() != "rental_transactions":
@@ -237,7 +236,7 @@ class MedallionPipeline:
                 customer_df = pd.read_csv(os.path.join(SILVER_DIR, "customer_master_clean.csv"))
                 equipment_df = pd.read_csv(os.path.join(SILVER_DIR, "equipment_master_clean.csv"))
 
-                # Process each Silver rental CSV individually
+                # Get all Silver rental CSV files
                 rental_files = [
                     f for f in os.listdir(SILVER_DIR)
                     if f.startswith("rental_transactions") and f.endswith(".csv")
@@ -246,24 +245,43 @@ class MedallionPipeline:
                 if not rental_files:
                     raise FileNotFoundError("No rental transaction Silver files found")
 
-                for rental_file in sorted(rental_files):  # sort for deterministic order
+                for rental_file in sorted(rental_files):  # deterministic order
                     rental_path = os.path.join(SILVER_DIR, rental_file)
                     detected_type = self._detect_source_type(rental_path)
 
+                    silver_source_name = rental_file.replace(".csv", "") + "_silver"
                     silver_source_id = self.pipeline_manager.add_or_get_source(
-                        f"{rental_file.replace('.csv','')}_silver",
+                        silver_source_name,
                         detected_type,
                         rental_path
                     )
 
-                    # Use local task variable
+                    # 🔹 Fetch schedule_id & batch_id from Silver task
+                    with sqlite3.connect(self.pipeline_manager.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT schedule_id, batch_id
+                            FROM task
+                            WHERE source_id = ?
+                            AND stage='silver'
+                            ORDER BY task_id DESC
+                            LIMIT 1
+                        """, (silver_source_id,))
+                        row = cursor.fetchone()
+                        if row:
+                            gold_schedule_id, gold_batch_id = row
+                        else:
+                            logger.warning(f"No Silver task found for {silver_source_name}, using outer loop IDs")
+                            gold_schedule_id, gold_batch_id = schedule_id, batch_id
+
+                    # Start Gold task
                     local_task_id = self.pipeline_manager.start_task(
                         source_id=silver_source_id,
                         target_id=self.gold_folder_id,
                         stage="gold",
                         pipeline_run_id=pipeline_run_id,
-                        schedule_id=schedule_id,
-                        batch_id=batch_id
+                        schedule_id=gold_schedule_id,
+                        batch_id=gold_batch_id
                     )
 
                     # Read Silver CSV
@@ -291,6 +309,7 @@ class MedallionPipeline:
                             file_path
                         )
 
+                    # Complete Gold task
                     self.pipeline_manager.complete_task(local_task_id)
 
                 return True
