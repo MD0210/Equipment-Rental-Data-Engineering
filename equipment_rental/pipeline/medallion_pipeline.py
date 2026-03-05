@@ -1,6 +1,6 @@
 import os
+import time
 import pandas as pd
-import sqlite3
 from equipment_rental.components.bronze_ingestion import BronzeIngestion
 from equipment_rental.components.silver_validation import SilverValidation
 from equipment_rental.components.silver_transformation import SilverTransformation
@@ -12,6 +12,12 @@ from equipment_rental.constants.constants import BRONZE_DIR, SILVER_DIR, GOLD_DI
 
 logger = get_logger()
 
+# SLA thresholds (in seconds)
+STAGE_SLA = {
+    "bronze": 30,
+    "silver": 60,
+    "gold": 120
+}
 
 class MedallionPipeline:
 
@@ -61,6 +67,7 @@ class MedallionPipeline:
         batch_id=None
     ):
         task_id = None
+        start_time = time.time()
         try:
             logger.info(
                 f"Pipeline stage started | table={table_name} | stage={stage} | pipeline_run_id={pipeline_run_id}"
@@ -99,7 +106,6 @@ class MedallionPipeline:
                     raise ValueError("Invalid Bronze source configuration")
 
                 self.pipeline_manager.complete_task(task_id)
-                return bronze_df
 
             # ============================
             # SILVER
@@ -154,13 +160,11 @@ class MedallionPipeline:
                             silver_path
                         )
                     elif table_name.lower() == "rental_transactions":
-                        # Determine filename and source_name
                         if key in source_name_map:
-                            if key == "equipment_utilisation":
-                                save_path = os.path.join(SILVER_DIR, "equipment_utilisation.csv")
-                            else:
-                                save_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
-
+                            save_path = os.path.join(
+                                SILVER_DIR,
+                                "equipment_utilisation.csv" if key == "equipment_utilisation" else f"{save_name}_{key}.csv"
+                            )
                             df.to_csv(save_path, index=False)
                             self.pipeline_manager.add_or_get_source(
                                 source_name_map[key],
@@ -169,7 +173,6 @@ class MedallionPipeline:
                             )
 
                 self.pipeline_manager.complete_task(task_id)
-                return True
 
             # ============================
             # GOLD
@@ -187,53 +190,80 @@ class MedallionPipeline:
                         raise FileNotFoundError(f"Missing Silver file: {path}")
                     master_dfs[table] = pd.read_csv(path)
 
-                # Only process the "all" rental transactions Silver file
-                rental_file = os.path.join(SILVER_DIR, "rental_transactions_all.csv")
-                if not os.path.exists(rental_file):
-                    raise FileNotFoundError("rental_transactions_all.csv not found in Silver directory")
-
-                silver_source_name = "rental_transactions_all_silver"
-                silver_source_id = self.pipeline_manager.get_source_id_by_name(silver_source_name)
-                if not silver_source_id:
-                    silver_source_id = self.pipeline_manager.add_or_get_source(
-                        silver_source_name,
-                        self._detect_source_type(rental_file),
-                        rental_file
-                    )
-
-                # Start Gold task
-                gold_task_id = self.pipeline_manager.start_task(
-                    source_id=silver_source_id,
-                    target_id=self.gold_folder_id,
-                    stage="gold",
-                    pipeline_run_id=pipeline_run_id,
-                    schedule_id=schedule_id,
-                    batch_id=batch_id
+                # Process rental_transactions Gold
+                rental_files = sorted(
+                    f for f in os.listdir(SILVER_DIR)
+                    if f.startswith("rental_transactions") and f.endswith(".csv")
                 )
+                if not rental_files:
+                    raise FileNotFoundError("No rental transaction Silver files found")
 
-                rental_df = pd.read_csv(rental_file)
-                self.gold.aggregate(
-                    rental_df=rental_df,
-                    customer_df=master_dfs["Customer_Master"],
-                    equipment_df=master_dfs["Equipment_Master"],
-                    pipeline_run_id=pipeline_run_id
-                )
+                processed_files = set()  # Prevent duplicate processing
 
-                # Register Gold outputs once
-                for file in os.listdir(GOLD_DIR):
-                    if file.endswith(".csv"):
-                        file_path = os.path.join(GOLD_DIR, file)
-                        self.pipeline_manager.add_or_get_source(
-                            file.replace(".csv", "_gold"),
-                            self._detect_source_type(file_path),
-                            file_path
+                for rental_file in rental_files:
+                    if rental_file in processed_files:
+                        continue
+                    processed_files.add(rental_file)
+
+                    rental_path = os.path.join(SILVER_DIR, rental_file)
+                    detected_type = self._detect_source_type(rental_path)
+
+                    silver_source_name = rental_file.replace(".csv", "") + "_silver"
+                    silver_source_id = self.pipeline_manager.get_source_id_by_name(silver_source_name)
+                    if not silver_source_id:
+                        silver_source_id = self.pipeline_manager.add_or_get_source(
+                            silver_source_name,
+                            detected_type,
+                            rental_path
                         )
 
-                self.pipeline_manager.complete_task(gold_task_id)
-                return True
+                    gold_task_id = self.pipeline_manager.start_task(
+                        source_id=silver_source_id,
+                        target_id=self.gold_folder_id,
+                        stage="gold",
+                        pipeline_run_id=pipeline_run_id,
+                        schedule_id=schedule_id,
+                        batch_id=batch_id
+                    )
+
+                    rental_df = pd.read_csv(rental_path)
+                    self.gold.aggregate(
+                        rental_df=rental_df,
+                        customer_df=master_dfs["Customer_Master"],
+                        equipment_df=master_dfs["Equipment_Master"],
+                        pipeline_run_id=pipeline_run_id
+                    )
+
+                    # Register Gold outputs (prevent duplicates)
+                    for file in os.listdir(GOLD_DIR):
+                        if file.endswith(".csv"):
+                            file_path = os.path.join(GOLD_DIR, file)
+                            source_name = file.replace(".csv", "_gold")
+                            if not self.pipeline_manager.get_source_id_by_name(source_name):
+                                self.pipeline_manager.add_or_get_source(
+                                    source_name,
+                                    self._detect_source_type(file_path),
+                                    file_path
+                                )
+
+                    self.pipeline_manager.complete_task(gold_task_id)
 
             else:
                 raise ValueError(f"Invalid stage: {stage}")
+
+            # ============================
+            # SLA Check
+            # ============================
+            end_time = time.time()
+            duration = end_time - start_time
+            max_allowed = STAGE_SLA.get(stage)
+            if max_allowed and duration > max_allowed:
+                logger.warning(
+                    f"SLA breached for stage {stage}: took {duration:.2f}s, allowed {max_allowed:.2f}s | pipeline_run_id={pipeline_run_id}"
+                )
+
+            # Return success (for Bronze, we return DataFrame)
+            return bronze_df if stage == "bronze" else True
 
         except Exception as e:
             if task_id:
