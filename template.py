@@ -82,7 +82,7 @@ list_of_files = [
     # APPLICATION ENTRY
     # ========================
     "main.py",
-    "pm_config.py"
+    "pm_config.py",
     "requirements.txt",
     "Dockerfile",
     ".dockerignore",
