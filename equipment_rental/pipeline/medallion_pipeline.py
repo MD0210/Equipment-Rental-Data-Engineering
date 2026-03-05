@@ -165,32 +165,34 @@ class MedallionPipeline:
                         validated, table_name, pipeline_run_id=pipeline_run_id
                     )
 
-                    # Remove quarantine for rental_transactions
-                    if table_name.lower() == "rental_transactions" and "quarantine" in transformed:
-                        transformed.pop("quarantine")
+                    # Remove unwanted outputs
+                    if table_name.lower() == "rental_transactions":
+                        transformed.pop("quarantine", None)                # Remove quarantine
+                        transformed.pop("equipment_utilisation", None)    # Remove equipment_utilisation
+                    if table_name.lower() in ["customer_master", "equipment_master", "date_dimension"]:
+                        transformed.pop("all", None)                       # Remove _all outputs
 
+                    # Save only remaining outputs
                     for key, df in transformed.items():
                         if df is None or df.empty:
-                            continue  # <-- skip registering empty outputs
+                            continue
 
                         save_name = table_name.lower()
-                        if table_name.lower() in ["customer_master", "equipment_master"]:
-                            # Only save _clean version, no _all
+                        if table_name.lower() in ["customer_master", "equipment_master", "date_dimension"]:
                             silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
+                            self.pipeline_manager.add_or_get_source(f"{save_name}_clean_silver", "csv", silver_path)
                         elif table_name.lower() == "rental_transactions":
-                            # Keep outputs except quarantine
-                            if key == "equipment_utilisation":
-                                silver_path = os.path.join(SILVER_DIR, "equipment_utilisation.csv")
-                            else:
-                                silver_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
+                            # Only keep cancelled, completed, all if needed
+                            silver_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
+                            self.pipeline_manager.add_or_get_source(f"{save_name}_{key}_silver", "csv", silver_path)
 
                         if batch_type == "incremental" and os.path.exists(silver_path):
                             existing_df = pd.read_csv(silver_path)
                             df = pd.concat([existing_df, df]).drop_duplicates()
 
                         save_csv(df, silver_path)
-                        self.pipeline_manager.add_or_get_source(f"{save_name}_{key}_silver", "csv", silver_path)
 
+                    # Update watermark
                     if batch_type == "incremental" and not bronze_df.empty:
                         max_ts = bronze_df["LastUpdated"].max()
                         self.pipeline_manager.update_watermark(bronze_source_id, "silver", max_ts)
