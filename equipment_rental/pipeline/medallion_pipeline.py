@@ -167,6 +167,33 @@ class MedallionPipeline:
                         validated, table_name, pipeline_run_id=pipeline_run_id
                     )
 
+                    # -------------------
+                    # Email alert for quarantine
+                    # -------------------
+                    quarantine_df = transformed.get("quarantine")
+                    if quarantine_df is not None and not quarantine_df.empty:
+                        logger.warning(f"{len(quarantine_df)} rows quarantined | table: {table_name}")
+                        try:
+                            from equipment_rental.utils.email_utils import send_sla_email
+
+                            subject = f"Quarantine Alert | Table: {table_name} | Pipeline Run: {pipeline_run_id}"
+                            body = (
+                                f"Attention Team,\n\n"
+                                f"{len(quarantine_df)} rows have been quarantined during Silver stage.\n"
+                                f"Table: {table_name}\n"
+                                f"Pipeline Run ID: {pipeline_run_id}\n\n"
+                                f"Please review the quarantined data at {SILVER_DIR}/{table_name}_quarantine_*.csv\n"
+                            )
+                            to_emails = ["team@example.com"]        # Replace with actual recipients
+                            from_email = "your.email@gmail.com"    # Replace with sender email
+                            from_password = "your_app_password"    # Replace with App Password or token
+
+                            # Non-blocking: just log failures
+                            send_sla_email(subject, body, to_emails, from_email, from_password)
+
+                        except Exception as e:
+                            logger.error(f"Failed to send quarantine email | table={table_name} | pipeline_run_id={pipeline_run_id} | error={str(e)}")
+
                     # Remove unwanted outputs
                     if table_name.lower() == "rental_transactions":
                         transformed.pop("quarantine", None)                # Remove quarantine
