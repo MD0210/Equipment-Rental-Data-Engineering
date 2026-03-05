@@ -152,6 +152,7 @@ class MedallionPipeline:
 
                 self.pipeline_manager.complete_task(task_id)
 
+
             # ============================
             # SILVER
             # ============================
@@ -258,32 +259,49 @@ class MedallionPipeline:
             # GOLD
             # ============================
             elif stage == "gold":
-                # Load master tables
-                master_paths = [
-                    ("customer_master_clean.csv", "Customer_Master"),
-                    ("equipment_master_clean.csv", "Equipment_Master")
-                ]
-                master_dfs = {}
-                for filename, table in master_paths:
-                    path = os.path.join(SILVER_DIR, filename)
-                    if not os.path.exists(path):
-                        raise FileNotFoundError(f"Missing Silver file: {path}")
-                    master_dfs[table] = pd.read_csv(path)
 
-                # Get Silver source_id for rental_transactions_all_silver
-                silver_source_name = "rental_transactions_all_silver"
-                silver_source_id = self.pipeline_manager.get_source_id_by_name(silver_source_name)
-                if not silver_source_id:
-                    rental_file = os.path.join(SILVER_DIR, "rental_transactions_all.csv")
+                silver_files = [
+                    f for f in os.listdir(SILVER_DIR)
+                    if f.endswith(".csv")
+                ]
+
+                if not silver_files:
+                    raise FileNotFoundError("No Silver files found")
+
+                silver_dfs = {}
+
+                for file in silver_files:
+
+                    table_name = file.replace(".csv", "")
+                    path = os.path.join(SILVER_DIR, file)
+
+                    detected_type = self._detect_source_type(path)
+
                     silver_source_id = self.pipeline_manager.add_or_get_source(
-                        silver_source_name,
-                        self._detect_source_type(rental_file),
-                        rental_file
+                        f"{table_name}_silver",
+                        detected_type,
+                        path
                     )
 
-                # Start a single Gold task with the correct source_id
+                    silver_dfs[table_name] = pd.read_csv(path)
+
+                # Identify required datasets
+                rental_df = silver_dfs.get("rental_transactions_all")
+                customer_df = silver_dfs.get("customer_master_clean")
+                equipment_df = silver_dfs.get("equipment_master_clean")
+
+                if rental_df is None:
+                    raise ValueError("Missing rental_transactions_all Silver dataset")
+
+                if customer_df is None:
+                    raise ValueError("Missing customer_master_clean Silver dataset")
+
+                if equipment_df is None:
+                    raise ValueError("Missing equipment_master_clean Silver dataset")
+
+                # Start Gold task
                 gold_task_id = self.pipeline_manager.start_task(
-                    source_id=silver_source_id,          # <-- ensures the correct source_id
+                    source_id=self.pipeline_manager.get_source_id_by_name("rental_transactions_all_silver"),
                     target_id=self.gold_folder_id,
                     stage="gold",
                     pipeline_run_id=pipeline_run_id,
@@ -291,22 +309,26 @@ class MedallionPipeline:
                     batch_id=batch_id
                 )
 
-                # Read Silver file and aggregate
-                rental_path = os.path.join(SILVER_DIR, "rental_transactions_all.csv")
-                rental_df = pd.read_csv(rental_path)
+                logger.info("Starting Gold aggregation from Silver outputs")
+
+                # Run aggregation
                 self.gold.aggregate(
                     rental_df=rental_df,
-                    customer_df=master_dfs["Customer_Master"],
-                    equipment_df=master_dfs["Equipment_Master"],
+                    customer_df=customer_df,
+                    equipment_df=equipment_df,
                     pipeline_run_id=pipeline_run_id
                 )
 
-                # Register Gold outputs once
+                # Register Gold outputs
                 for file in os.listdir(GOLD_DIR):
+
                     if file.endswith(".csv"):
+
                         file_path = os.path.join(GOLD_DIR, file)
                         source_name = file.replace(".csv", "_gold")
+
                         if not self.pipeline_manager.get_source_id_by_name(source_name):
+
                             self.pipeline_manager.add_or_get_source(
                                 source_name,
                                 self._detect_source_type(file_path),
