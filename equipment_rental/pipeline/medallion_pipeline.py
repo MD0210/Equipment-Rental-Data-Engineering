@@ -217,7 +217,6 @@ class MedallionPipeline:
                 return True
 
             # ============================================================
-            # ============================================================
             # GOLD
             # ============================================================
             elif stage == "gold":
@@ -251,6 +250,7 @@ class MedallionPipeline:
                     rental_path = os.path.join(SILVER_DIR, rental_file)
                     detected_type = self._detect_source_type(rental_path)
 
+                    # 1️⃣ Register Silver source
                     silver_source_name = rental_file.replace(".csv", "") + "_silver"
                     silver_source_id = self.pipeline_manager.add_or_get_source(
                         silver_source_name,
@@ -258,26 +258,26 @@ class MedallionPipeline:
                         rental_path
                     )
 
-                    # 🔹 Fetch schedule_id & batch_id from Silver task
+                    # 2️⃣ Fetch original Silver task info (schedule_id, batch_id)
                     with sqlite3.connect(self.pipeline_manager.db_path) as conn:
                         cursor = conn.cursor()
                         cursor.execute("""
                             SELECT schedule_id, batch_id
                             FROM task
-                            WHERE source_id = ?
-                            AND stage='silver'
-                            ORDER BY task_id DESC
+                            WHERE source_id = ? AND stage='silver'
+                            ORDER BY task_id ASC
                             LIMIT 1
                         """, (silver_source_id,))
                         row = cursor.fetchone()
                         if row:
                             gold_schedule_id, gold_batch_id = row
                         else:
-                            logger.warning(f"No Silver task found for {silver_source_name}, using outer loop IDs")
+                            # fallback to outer loop (should rarely happen)
                             gold_schedule_id, gold_batch_id = schedule_id, batch_id
+                            logger.warning(f"No Silver task found for {silver_source_name}, using outer IDs")
 
-                    # Start Gold task
-                    local_task_id = self.pipeline_manager.start_task(
+                    # 3️⃣ Start Gold task
+                    gold_task_id = self.pipeline_manager.start_task(
                         source_id=silver_source_id,
                         target_id=self.gold_folder_id,
                         stage="gold",
@@ -286,10 +286,8 @@ class MedallionPipeline:
                         batch_id=gold_batch_id
                     )
 
-                    # Read Silver CSV
+                    # 4️⃣ Read Silver CSV & Aggregate
                     rental_df = pd.read_csv(rental_path)
-
-                    # Aggregate
                     self.gold.aggregate(
                         rental_df=rental_df,
                         customer_df=customer_df,
@@ -297,22 +295,20 @@ class MedallionPipeline:
                         pipeline_run_id=pipeline_run_id
                     )
 
-                    # Register Gold outputs
+                    # 5️⃣ Register Gold outputs
                     for file in os.listdir(GOLD_DIR):
                         if not file.endswith(".csv"):
                             continue
-
                         file_path = os.path.join(GOLD_DIR, file)
                         detected_type = self._detect_source_type(file_path)
-
                         self.pipeline_manager.add_or_get_source(
                             file.replace(".csv", "_gold"),
                             detected_type,
                             file_path
                         )
 
-                    # Complete Gold task
-                    self.pipeline_manager.complete_task(local_task_id)
+                    # 6️⃣ Complete Gold task
+                    self.pipeline_manager.complete_task(gold_task_id)
 
                 return True
 
