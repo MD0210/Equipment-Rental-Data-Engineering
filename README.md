@@ -1,171 +1,100 @@
-# 🚀 Equipment Rental Data Engineering Pipeline  
-### Medallion Architecture + Metadata-Driven Orchestrator
+# Equipment Rental Medallion Pipeline
 
---- 
+## Overview
 
-## 📌 Project Overview
+This project demonstrates a **Medallion Architecture** (Bronze → Silver → Gold) for an equipment hire company. The pipeline addresses **data quality and consistency issues** in rental transaction data from multiple source systems.  
 
-This project implements a production-style **Data Engineering Pipeline** using the **Medallion Architecture (Bronze → Silver → Gold)** combined with a custom-built **metadata-driven Pipeline Manager**.
-
-The solution simulates a real-world equipment rental company facing:
-
-- Inconsistent reporting  
-- Revenue reconciliation issues  
-- Data quality problems  
-- Multi-table ingestion requirements  
-
-Instead of hardcoding logic, the pipeline execution is fully driven by metadata tables (`source`, `schedule`, `batch`, `task`) stored in a SQLite orchestration database.
+It is built in **Python** using **Pandas** and designed to simulate a Microsoft Fabric-like data engineering workflow.  
 
 ---
 
-## 🏗 Architecture
+## Project Structure
+equipment_rental/
+├─ artifacts/
+│ ├─ bronze/ # Raw ingested data
+│ ├─ silver/ # Cleaned and validated data
+│ └─ gold/ # Aggregated business metrics
+├─ equipment_rental/
+│ ├─ components/
+│ │ ├─ bronze_ingestion.py
+│ │ ├─ silver_validation.py
+│ │ ├─ silver_transformation.py
+│ │ └─ gold_aggregation.py
+│ ├─ pipeline/
+│ │ ├─ medallion_pipeline.py
+│ │ └─ pipeline_manager.py
+│ ├─ constants/
+│ │ └─ constants.py
+│ ├─ logger/
+│ │ └─ logger.py
+│ └─ exception/
+│ └─ exception.py
+├─ main.py # Pipeline runner
+└─ pm_config.py # Interactive configuration of sources, schedules, batches
 
-### 🔹 Data Flow (Medallion)
-Source → Bronze → Silver → Gold
-
-- **Bronze** → Raw ingestion layer (no transformations)
-- **Silver** → Data validation, cleansing, standardization
-- **Gold** → Aggregated, analytics-ready datasets
-
----
-
-### 🔹 Orchestration Flow (Metadata Model)
-Source → Schedule (unique) → Batch (per table) → Task (per processing step)
-
-Each execution tracks:
-- Task status (running / success / failed)
-- Start & end timestamps
-- Execution duration (seconds)
-- Error messages
-- Automatically calculated next scheduled run
-
----
-
-## ✨ Key Features
-
-- ✅ Interactive runtime input 
-- ✅ Unique schedule enforcement
-- ✅ Multiple batches under one schedule
-- ✅ Task-level duration tracking
-- ✅ Automatic `next_run_ts` calculation
-- ✅ Data quality validation
-- ✅ Structured artifact storage
-- ✅ Failure handling & logging
-- ✅ Rerunnable batch design
 
 ---
 
-## ▶ How to Run
+## Prerequisites
 
-### 1️⃣ Clone the Repository
+- Python ≥ 3.9  
+- Libraries:
+  ```bash
+  pip install -r requirements.txt
+  ```
+requirements.txt includes: pandas, openpyxl, and other dependencies.
+
+## How to Run
+1. Configure Pipeline Metadata
+
+Run pm_config.py to add or update sources, schedules, and batches:
 ```bash
-git clone <your-repository-url>
-cd Equipment-Rental-Data-Engineering
+python pm_config.py
 ```
+Follow prompts to:
+- Add source files (CSV/Excel)
+- Create schedules and batch configurations
+- Set priorities and active flags
 
-### 2️⃣ Create Virtual Environment (Recommended)
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-### 3️⃣ Install Dependencies
-```bash
-pip install pandas openpyxl
-```
-
-### 4️⃣ Execute the Pipeline
+2. Run the Pipeline
 ```bash
 python main.py
 ```
+- Processes Bronze → Silver → Gold layers sequentially.
+- Tracks task status, incremental watermarks, and SLA warnings.
+- Outputs are saved in artifacts/bronze, artifacts/silver, and artifacts/gold.
 
-You will be prompted to provide:
-```bash
-Enter tables (comma-separated)
-Enter source name
-Enter source type (excel/db/api)
-Enter file path or connection string
-Enter schedule name
-Enter run timestamp (YYYY-MM-DD HH:MM:SS)
-Enter timezone
-Enter frequency (daily/weekly/hourly/monthly/manual)
-Enter priority number
-Enter active flag (1=active, 0=inactive)
-Enter batch type (full/incremental)
-```
+Medallion Layer Details
+| Layer      | Purpose                     | Key Features / Transformations                                                                                                                                                                                                                             |
+| ---------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bronze** | Raw landing                 | - Ingest CSV/Excel<br>- Preserve original data<br>- Add `load_timestamp`, `source_file` audit columns<br>- Incremental load support with watermarks                                                                                                        |
+| **Silver** | Cleaned / Conformed         | - Validate data quality (duplicates, nulls, invalid values)<br>- Standardize formats (dates, strings)<br>- Apply business rules (e.g., RentalDays ≥ 0)<br>- Calculate derived metrics (equipment utilisation, revenue)<br>- Quarantine or log invalid rows |
+| **Gold**   | Aggregated / Business-ready | - Merge Silver tables for reporting<br>- Compute key metrics:<br>  - Total revenue per month<br>  - Equipment utilisation (%)<br>  - Completed vs cancelled transactions                                                                                   |
 
-## 📂 Output Structure
-```bash
-After execution:
-artifacts/
-│
-├── bronze/
-├── silver/quarantine
-├── gold/
-└── pipeline_manager/
-    └── pipeline_manager.db
-```
+## Data Quality Issues Identified
+- RentalDays can be negative → corrected or quarantined
+- EquipmentUtilisation may exceed 100% → capped or flagged
+- Missing CustomerID or EquipmentID → skipped and logged
+- Duplicates in transactional data → removed during Silver layer
+- Null or inconsistent date formats → standardized in Silver layer
 
-## 🧠 Key Design Assumptions
+## Assumptions
+1. Incremental loads are based on a LastUpdated timestamp column.
+2. Business rules for invalid data:
+    - RentalDays < 0 → quarantined
+    - Utilisation > 100% → capped
+    - Null mandatory keys → skipped
+3. Gold metrics assume fully cleaned Silver tables.
+4. SLA thresholds:
+    - Bronze: 30s
+    - Silver: 60s
+    - Gold: 120s
+5. Tasks are tracked in SQLite database (pipeline_manager.db) to allow restart from failures.
 
-1. schedule_name must be unique.
-2. One schedule can contain multiple batches.
-3. Each table is processed as an independent batch.
-4. Bronze stores raw data without transformation.
-5. Silver enforces validation, cleansing, and business rules.
-6. Gold prepares aggregated reporting datasets.
-7. next_run_ts is automatically calculated based on:
- - daily → +1 day
- - weekly → +7 days
- - hourly → +1 hour
- - monthly → +30 days
-8. Batch-level reruns are allowed without recreating schedules.
-
-## 🔍 Data Quality Issues Identified
-During analysis of the Equipment Hire dataset, the following issues were observed:
-
-1️⃣ Missing EndDate
-- Causes incorrect rental duration calculations
-- Flagged during Silver validation
-
-2️⃣ Negative Revenue
-- Causes reconciliation issues
-- Flagged or rejected in Silver layer
-
-3️⃣ Inconsistent Date Formats
-- Converted to standardized datetime format in Silver
-
-4️⃣ Duplicate Transactions
-- Deduplicated during transformation
-
-5️⃣ Referential Integrity Issues
-- Orphan CustomerID
-- Orphan EquipmentID
-- Identified during Silver joins
-
-## 🔁 Rerun Strategy
-
-This pipeline supports selective reruns:
-- Rerun only failed tasks
-- Rerun specific batches
-- Maintain historical execution records
-- No need to recreate schedules
-Each rerun generates new task entries while preserving historical metadata for auditability.
-
-## 📦 Dependencies
-
-- Python 3.9+
-- pandas
-- openpyxl
-- sqlite3 (built-in)
-Optional:
-- Logging framework (custom logger included)
-
-## 📈 Future Enhancements
-
-- Add API ingestion support
-- Implement incremental watermark tracking
-- Add email/Slack failure notifications
-- Deploy as containerized microservice
-- Integrate with Azure Data Factory or Microsoft Fabric
-- Add dashboard for pipeline monitoring
+## Key Features
+- Incremental processing with watermarks
+- Pipeline orchestration with dependency handling
+- Error handling & logging for auditability
+- Task-level SLA monitoring
+- Separation of layers following Medallion architecture
+- Modular and reusable Python components
