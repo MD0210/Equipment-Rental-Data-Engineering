@@ -9,29 +9,26 @@ It is built in **Python** using **Pandas** and designed to simulate a Microsoft 
 ---
 
 ## Project Structure
-equipment_rental/
-├─ components/
-│  ├─ bronze_ingestion.py
-│  ├─ silver_validation.py
-│  ├─ silver_transformation.py
-│  ├─ gold_aggregation.py
-│  └─ quarantine_handler.py
-├─ pipeline/
-│  ├─ medallion_pipeline.py
-│  └─ pipeline_manager.py
-├─ configuration/
-│  └─ configuration.py
-├─ entity/
-│  ├─ config_entity.py
-│  └─ artifact_entity.py
-├─ constants/
-│  └─ constants.py
-├─ exception/
-│  └─ exception.py
-├─ logger/
-│  └─ logger.py
-├─ utils/
-│  └─ common_utils.py
+
+
+├─equipment_rental/
+│   ├─ components/
+│   │  ├─ bronze_ingestion.py
+│   │  ├─ silver_validation.py
+│   │  ├─ silver_transformation.py
+│   │  ├─ gold_aggregation.py
+│   │  └─ quarantine_handler.py
+│   ├─ pipeline/
+│   │  ├─ medallion_pipeline.py
+│   │  └─ pipeline_manager.py
+│   ├─ constants/
+│   │  └─ constants.py
+│   ├─ exception/
+│   │  └─ exception.py
+│   ├─ logger/
+│   │  └─ logger.py
+│   ├─ utils/
+│   │  └─ common_utils.py
 ├─ artifacts/
 │  ├─ bronze/.keep
 │  ├─ silver/.keep
@@ -39,9 +36,6 @@ equipment_rental/
 │  ├─ gold/.keep
 │  └─ pipeline_manager/.keep
 ├─ data/.keep
-├─ config/
-│  ├─ config.yaml
-│  └─ schema.yaml
 ├─ main.py
 ├─ pm_config.py
 ├─ requirements.txt
