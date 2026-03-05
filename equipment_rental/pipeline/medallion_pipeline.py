@@ -158,32 +158,38 @@ class MedallionPipeline:
                     if batch_type == "incremental" and last_watermark is not None and "LastUpdated" in bronze_df.columns:
                         bronze_df = bronze_df[bronze_df["LastUpdated"] > last_watermark]
 
-                    validated = self.silver_validator.validate(bronze_df, table_name, source_file=bronze_path, pipeline_run_id=pipeline_run_id)
-                    transformed = self.silver_transformer.transform(validated, table_name, pipeline_run_id=pipeline_run_id)
-                    if table_name.lower() == "rental_transactions" and "quarantine" and "equipment_utilisation" in transformed:
-                       transformed.pop("quarantine", "equipment_utilisation")
+                    validated = self.silver_validator.validate(
+                        bronze_df, table_name, source_file=bronze_path, pipeline_run_id=pipeline_run_id
+                    )
+                    transformed = self.silver_transformer.transform(
+                        validated, table_name, pipeline_run_id=pipeline_run_id
+                    )
+
+                    # Remove quarantine for rental_transactions
+                    if table_name.lower() == "rental_transactions" and "quarantine" in transformed:
+                        transformed.pop("quarantine")
 
                     for key, df in transformed.items():
+                        if df is None or df.empty:
+                            continue  # <-- skip registering empty outputs
+
                         save_name = table_name.lower()
                         if table_name.lower() in ["customer_master", "equipment_master"]:
                             # Only save _clean version, no _all
                             silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
-                            if batch_type == "incremental" and os.path.exists(silver_path):
-                                existing_df = pd.read_csv(silver_path)
-                                df = pd.concat([existing_df, df]).drop_duplicates()
-                            save_csv(df, silver_path)
-                            self.pipeline_manager.add_or_get_source(f"{save_name}_clean_silver", "csv", silver_path)
                         elif table_name.lower() == "rental_transactions":
-                            # Keep all outputs for rental_transactions
+                            # Keep outputs except quarantine
                             if key == "equipment_utilisation":
                                 silver_path = os.path.join(SILVER_DIR, "equipment_utilisation.csv")
                             else:
                                 silver_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
-                            if batch_type == "incremental" and os.path.exists(silver_path):
-                                existing_df = pd.read_csv(silver_path)
-                                df = pd.concat([existing_df, df]).drop_duplicates()
-                            save_csv(df, silver_path)
-                            self.pipeline_manager.add_or_get_source(f"{save_name}_{key}_silver", "csv", silver_path)
+
+                        if batch_type == "incremental" and os.path.exists(silver_path):
+                            existing_df = pd.read_csv(silver_path)
+                            df = pd.concat([existing_df, df]).drop_duplicates()
+
+                        save_csv(df, silver_path)
+                        self.pipeline_manager.add_or_get_source(f"{save_name}_{key}_silver", "csv", silver_path)
 
                     if batch_type == "incremental" and not bronze_df.empty:
                         max_ts = bronze_df["LastUpdated"].max()
