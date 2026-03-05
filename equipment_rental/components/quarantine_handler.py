@@ -3,9 +3,11 @@ import os
 import pandas as pd
 from equipment_rental.constants.constants import QUARANTINE_DIR
 from equipment_rental.logger.logger import get_logger
+from equipment_rental.exception.exception import QuarantineProcessingException
 from datetime import datetime
 
 logger = get_logger()
+
 
 class QuarantineHandler:
     def __init__(self):
@@ -17,6 +19,10 @@ class QuarantineHandler:
         Adds metadata: pipeline_run_id and timestamp.
         """
         try:
+            if df is None or df.empty:
+                logger.warning(f"No quarantine data to save for table: {table_name}")
+                return
+
             df = df.copy()
             current_ts = datetime.now()
             df["pipeline_run_id"] = pipeline_run_id
@@ -26,8 +32,14 @@ class QuarantineHandler:
             file_path = os.path.join(QUARANTINE_DIR, file_name)
 
             df.to_csv(file_path, index=False)
-            logger.warning(f"Quarantine data saved | table: {table_name} | rows: {len(df)} | path: {file_path}")
+            logger.warning(
+                f"Quarantine data saved | table: {table_name} | "
+                f"rows: {len(df)} | path: {file_path}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to save quarantine for {table_name}: {str(e)}")
-            raise
+            raise QuarantineProcessingException(
+                f"Failed to save quarantine for table: {table_name}",
+                errors=str(e)
+            ) from e

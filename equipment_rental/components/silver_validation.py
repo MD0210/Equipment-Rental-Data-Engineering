@@ -1,10 +1,8 @@
+# equipment_rental/components/silver_validation.py
 import pandas as pd
 from datetime import datetime
 from equipment_rental.logger.logger import get_logger
-from equipment_rental.exception.exception import (
-    SilverValidationException,
-    QuarantineProcessingException
-)
+from equipment_rental.exception.exception import (SilverValidationException,QuarantineProcessingException)
 
 logger = get_logger()
 

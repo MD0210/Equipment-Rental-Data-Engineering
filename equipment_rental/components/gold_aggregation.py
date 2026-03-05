@@ -1,9 +1,11 @@
+# equipment_rental/components/gold_aggregation.py
 from datetime import datetime
 import pandas as pd
 import os
 from equipment_rental.constants.constants import GOLD_DIR
 from equipment_rental.utils.common_utils import save_csv
 from equipment_rental.logger.logger import get_logger
+from equipment_rental.exception.exception import GoldAggregationException
 
 logger = get_logger()
 
@@ -24,14 +26,10 @@ class GoldAggregation:
             rental_df = rental_df.copy()
 
             # ---------------- Ensure columns exist ----------------
-            if "DailyRate" not in rental_df.columns:
-                rental_df["DailyRate"] = 0
-            if "RentalDays" not in rental_df.columns:
-                rental_df["RentalDays"] = 0
-            if "quarantined" not in rental_df.columns:
-                rental_df["quarantined"] = 0
+            for col in ["DailyRate", "RentalDays", "quarantined"]:
+                if col not in rental_df.columns:
+                    rental_df[col] = 0
 
-            # Ensure numeric types
             rental_df["DailyRate"] = pd.to_numeric(rental_df["DailyRate"], errors="coerce").fillna(0)
             rental_df["RentalDays"] = pd.to_numeric(rental_df["RentalDays"], errors="coerce").fillna(0)
 
@@ -88,7 +86,6 @@ class GoldAggregation:
                     total_revenue=pd.NamedAgg(column="Revenue", aggfunc="sum")
                 ).reset_index()
 
-                # Merge with customer master metadata
                 cust_agg = cust_agg.merge(customer_df, on="CustomerID", how="left")
                 save_csv(cust_agg, os.path.join(GOLD_DIR, "customer_aggregation.csv"))
 
@@ -107,4 +104,7 @@ class GoldAggregation:
 
         except Exception as e:
             logger.error(f"Gold aggregation failed: {str(e)}")
-            raise
+            raise GoldAggregationException(
+                "Gold aggregation failed",
+                errors=str(e)
+            ) from e
