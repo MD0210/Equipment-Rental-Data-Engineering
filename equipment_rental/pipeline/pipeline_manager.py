@@ -4,7 +4,6 @@ import sqlite3
 from datetime import datetime
 from equipment_rental.logger.logger import get_logger
 from equipment_rental.constants.constants import PIPELINE_DIR
-from equipment_rental.exception.exception import PipelineManagerException  # <- import custom exception
 
 logger = get_logger()
 os.makedirs(PIPELINE_DIR, exist_ok=True)
@@ -15,126 +14,118 @@ class PipelineManager:
 
     def __init__(self, db_path=DB_PATH):
         self.db_path = db_path
-        try:
-            self._init_db()
-        except Exception as e:
-            logger.error(f"Failed to initialize PipelineManager DB: {str(e)}")
-            raise PipelineManagerException("DB initialization failed", errors=e)
+        self._init_db()
 
     # ==========================================================
     # INIT DATABASE
     # ==========================================================
     def _init_db(self):
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-                # Source table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS source (
-                    source_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_name TEXT UNIQUE,
-                    source_type TEXT,
-                    connection_text TEXT,
-                    insert_ts TEXT,
-                    insert_user TEXT,
-                    update_ts TEXT,
-                    update_user TEXT
-                )
-                """)
+            # Source table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS source (
+                source_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_name TEXT UNIQUE,
+                source_type TEXT,
+                connection_text TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
 
-                # Schedule table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS schedule (
-                    schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_id INTEGER,
-                    schedule_name TEXT UNIQUE,
-                    frequency TEXT,
-                    run_ts TEXT,
-                    next_run_ts TEXT,
-                    timezone TEXT,
-                    priority_nbr INTEGER,
-                    active_flag INTEGER,
-                    insert_ts TEXT,
-                    insert_user TEXT,
-                    update_ts TEXT,
-                    update_user TEXT
-                )
-                """)
+            # Schedule table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schedule (
+                schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER,
+                schedule_name TEXT UNIQUE,
+                frequency TEXT,
+                run_ts TEXT,
+                next_run_ts TEXT,
+                timezone TEXT,
+                priority_nbr INTEGER,
+                active_flag INTEGER,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
 
-                # Batch table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS batch (
-                    batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    schedule_id INTEGER,
-                    batch_name TEXT,
-                    batch_type TEXT,
-                    priority_nbr INTEGER,
-                    active_flag INTEGER,
-                    run_date TEXT,
-                    insert_ts TEXT,
-                    insert_user TEXT,
-                    update_ts TEXT,
-                    update_user TEXT
-                )
-                """)
+            # Batch table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS batch (
+                batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schedule_id INTEGER,
+                batch_name TEXT,
+                batch_type TEXT,
+                priority_nbr INTEGER,
+                active_flag INTEGER,
+                run_date TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
 
-                # Pipeline run table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS pipeline_run (
-                    pipeline_run_id TEXT PRIMARY KEY,
-                    start_ts TEXT,
-                    end_ts TEXT,
-                    status TEXT,
-                    insert_ts TEXT,
-                    insert_user TEXT,
-                    update_ts TEXT,
-                    update_user TEXT
-                )
-                """)
+            # Pipeline run table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_run (
+                pipeline_run_id TEXT PRIMARY KEY,
+                start_ts TEXT,
+                end_ts TEXT,
+                status TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
 
-                # Task table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS task (
-                    task_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    pipeline_run_id TEXT,
-                    schedule_id INTEGER,
-                    batch_id INTEGER,
-                    source_id INTEGER,
-                    target_id INTEGER,
-                    stage TEXT,
-                    status TEXT,
-                    start_ts TEXT,
-                    end_ts TEXT,
-                    duration_sec REAL,
-                    error_msg TEXT,
-                    insert_ts TEXT,
-                    insert_user TEXT,
-                    update_ts TEXT,
-                    update_user TEXT
-                )
-                """)
+            # Task table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS task (
+                task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_run_id TEXT,
+                schedule_id INTEGER,
+                batch_id INTEGER,
+                source_id INTEGER,
+                target_id INTEGER,
+                stage TEXT,
+                status TEXT,
+                start_ts TEXT,
+                end_ts TEXT,
+                duration_sec REAL,
+                error_msg TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT
+            )
+            """)
 
-                # Watermark table for incremental loads
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS pipeline_watermark (
-                    watermark_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_id INTEGER,
-                    stage TEXT,
-                    last_watermark TEXT,
-                    insert_ts TEXT,
-                    insert_user TEXT,
-                    update_ts TEXT,
-                    update_user TEXT,
-                    UNIQUE(source_id, stage)
-                )
-                """)
+            # Watermark table for incremental loads
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_watermark (
+                watermark_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER,
+                stage TEXT,
+                last_watermark TEXT,
+                insert_ts TEXT,
+                insert_user TEXT,
+                update_ts TEXT,
+                update_user TEXT,
+                UNIQUE(source_id, stage)
+            )
+            """)
 
-                conn.commit()
-            logger.info(f"Pipeline Manager DB initialized at {self.db_path}")
-        except Exception as e:
-            logger.error(f"Error creating DB tables: {str(e)}")
-            raise PipelineManagerException("Failed to initialize DB tables", errors=e)
+            conn.commit()
+        logger.info(f"Pipeline Manager DB initialized at {self.db_path}")
 
     # ==========================================================
     # PIPELINE RUN
@@ -143,48 +134,170 @@ class PipelineManager:
         import uuid
         pipeline_run_id = str(uuid.uuid4())
         start_ts = datetime.now()
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO pipeline_run (pipeline_run_id, start_ts, status, insert_ts, insert_user)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (pipeline_run_id, start_ts, "running", start_ts, "system"))
-                conn.commit()
-            logger.info(f"Pipeline run started: {pipeline_run_id}")
-            return pipeline_run_id
-        except Exception as e:
-            logger.error(f"Failed to create pipeline run: {str(e)}")
-            raise PipelineManagerException("Failed to create pipeline run", errors=e)
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO pipeline_run (pipeline_run_id, start_ts, status, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?)
+            """, (pipeline_run_id, start_ts, "running", start_ts, "system"))
+            conn.commit()
+        logger.info(f"Pipeline run started: {pipeline_run_id}")
+        return pipeline_run_id
 
     def complete_pipeline_run(self, pipeline_run_id):
-        try:
-            end_ts = datetime.now()
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE pipeline_run
-                    SET status='success', end_ts=?, update_ts=?, update_user=?
-                    WHERE pipeline_run_id=?
-                """, (end_ts, datetime.now(), "system", pipeline_run_id))
-                conn.commit()
-            logger.info(f"Pipeline run completed: {pipeline_run_id}")
-        except Exception as e:
-            logger.error(f"Failed to complete pipeline run: {str(e)}")
-            raise PipelineManagerException(f"Failed to complete pipeline run {pipeline_run_id}", errors=e)
+        end_ts = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE pipeline_run
+                SET status='success', end_ts=?, update_ts=?, update_user=?
+                WHERE pipeline_run_id=?
+            """, (end_ts, datetime.now(), "system", pipeline_run_id))
+            conn.commit()
+        logger.info(f"Pipeline run completed: {pipeline_run_id}")
 
     def fail_pipeline_run(self, pipeline_run_id):
-        try:
-            end_ts = datetime.now()
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE pipeline_run
-                    SET status='failed', end_ts=?, update_ts=?, update_user=?
-                    WHERE pipeline_run_id=?
-                """, (end_ts, datetime.now(), "system", pipeline_run_id))
-                conn.commit()
-            logger.error(f"Pipeline run failed: {pipeline_run_id}")
-        except Exception as e:
-            logger.error(f"Failed to mark pipeline run as failed: {str(e)}")
-            raise PipelineManagerException(f"Failed to fail pipeline run {pipeline_run_id}", errors=e)
+        end_ts = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE pipeline_run
+                SET status='failed', end_ts=?, update_ts=?, update_user=?
+                WHERE pipeline_run_id=?
+            """, (end_ts, datetime.now(), "system", pipeline_run_id))
+            conn.commit()
+        logger.error(f"Pipeline run failed: {pipeline_run_id}")
+
+    # ==========================================================
+    # SOURCE
+    # ==========================================================
+    def add_or_get_source(self, source_name, source_type, connection_text):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            if source_type == "folder":
+                cursor.execute(
+                    "SELECT source_id FROM source WHERE source_type='folder' AND connection_text=?",
+                    (connection_text,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+
+            cursor.execute(
+                "SELECT source_id FROM source WHERE source_name=?",
+                (source_name,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+
+            now = datetime.now()
+            cursor.execute("""
+                INSERT INTO source (source_name, source_type, connection_text, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?)
+            """, (source_name, source_type, connection_text, now, "system"))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_source_id_by_name(self, source_name):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT source_id FROM source WHERE source_name=?", (source_name,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    # ==========================================================
+    # TASKS
+    # ==========================================================
+    def start_task(self, source_id, target_id, stage, pipeline_run_id, schedule_id=None, batch_id=None):
+        start_ts = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO task (
+                    pipeline_run_id, schedule_id, batch_id, source_id, target_id, stage, status,
+                    start_ts, insert_ts, insert_user
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (pipeline_run_id, schedule_id, batch_id, source_id, target_id, stage, "running",
+                  start_ts, start_ts, "system"))
+            conn.commit()
+            task_id = cursor.lastrowid
+        logger.info(f"Task started | pipeline_run_id={pipeline_run_id} | stage={stage} | batch_id={batch_id}")
+        return task_id
+
+    def complete_task(self, task_id):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT start_ts FROM task WHERE task_id=?", (task_id,))
+            row = cursor.fetchone()
+            if not row:
+                logger.error(f"No task found for task_id={task_id}")
+                return
+            start_dt = datetime.fromisoformat(row[0])
+            end_dt = datetime.now()
+            duration = (end_dt - start_dt).total_seconds()
+            cursor.execute("""
+                UPDATE task
+                SET status='success', end_ts=?, duration_sec=?, update_ts=?, update_user=?
+                WHERE task_id=?
+            """, (end_dt, duration, datetime.now(), "system", task_id))
+            conn.commit()
+        logger.info(f"Task completed | task_id={task_id} | duration={duration:.3f} sec")
+
+    def fail_task(self, task_id, error_msg):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            end_dt = datetime.now()
+            cursor.execute("""
+                UPDATE task
+                SET status='failed', end_ts=?, error_msg=?, update_ts=?, update_user=?
+                WHERE task_id=?
+            """, (end_dt, error_msg, datetime.now(), "system", task_id))
+            conn.commit()
+        logger.error(f"Task failed | task_id={task_id} | error={error_msg}")
+
+    def get_failed_tasks(self, pipeline_run_id):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT stage, table_name
+                FROM task
+                WHERE pipeline_run_id=? AND status='failed'
+                ORDER BY CASE stage
+                    WHEN 'bronze' THEN 1
+                    WHEN 'silver' THEN 2
+                    WHEN 'gold' THEN 3
+                    ELSE 4
+                END
+            """, (pipeline_run_id,))
+            return cursor.fetchall()
+
+    # ==========================================================
+    # WATERMARKS (INCREMENTAL)
+    # ==========================================================
+    def get_last_watermark(self, source_id, stage):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT last_watermark
+                FROM pipeline_watermark
+                WHERE source_id=? AND stage=?
+            """, (source_id, stage))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def update_watermark(self, source_id, stage, last_watermark):
+        now = datetime.now()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO pipeline_watermark (source_id, stage, last_watermark, insert_ts, insert_user)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source_id, stage) DO UPDATE SET
+                    last_watermark=excluded.last_watermark,
+                    update_ts=?,
+                    update_user=?
+            """, (source_id, stage, last_watermark, now, "system", now, "system"))
+            conn.commit()
+        logger.info(f"Watermark updated | source_id={source_id} | stage={stage} | last_watermark={last_watermark}")
