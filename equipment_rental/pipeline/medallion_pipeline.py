@@ -190,23 +190,20 @@ class MedallionPipeline:
                         raise FileNotFoundError(f"Missing Silver file: {path}")
                     master_dfs[table] = pd.read_csv(path)
 
-                # Use only the "all" rental transactions Silver file
-                rental_file = os.path.join(SILVER_DIR, "rental_transactions_all.csv")
-                if not os.path.exists(rental_file):
-                    raise FileNotFoundError("rental_transactions_all.csv not found in Silver directory")
-
+                # Get Silver source_id for rental_transactions_all_silver
                 silver_source_name = "rental_transactions_all_silver"
                 silver_source_id = self.pipeline_manager.get_source_id_by_name(silver_source_name)
                 if not silver_source_id:
+                    rental_file = os.path.join(SILVER_DIR, "rental_transactions_all.csv")
                     silver_source_id = self.pipeline_manager.add_or_get_source(
                         silver_source_name,
                         self._detect_source_type(rental_file),
                         rental_file
                     )
 
-                # Start a single Gold task
+                # Start a single Gold task with the correct source_id
                 gold_task_id = self.pipeline_manager.start_task(
-                    source_id=silver_source_id,
+                    source_id=silver_source_id,          # <-- ensures the correct source_id
                     target_id=self.gold_folder_id,
                     stage="gold",
                     pipeline_run_id=pipeline_run_id,
@@ -214,7 +211,9 @@ class MedallionPipeline:
                     batch_id=batch_id
                 )
 
-                rental_df = pd.read_csv(rental_file)
+                # Read Silver file and aggregate
+                rental_path = os.path.join(SILVER_DIR, "rental_transactions_all.csv")
+                rental_df = pd.read_csv(rental_path)
                 self.gold.aggregate(
                     rental_df=rental_df,
                     customer_df=master_dfs["Customer_Master"],
