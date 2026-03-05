@@ -164,21 +164,24 @@ class MedallionPipeline:
                     for key, df in transformed.items():
                         save_name = table_name.lower()
                         if table_name.lower() in ["customer_master", "equipment_master"]:
+                            # Only save _clean version, no _all
                             silver_path = os.path.join(SILVER_DIR, f"{save_name}_clean.csv")
+                            if batch_type == "incremental" and os.path.exists(silver_path):
+                                existing_df = pd.read_csv(silver_path)
+                                df = pd.concat([existing_df, df]).drop_duplicates()
+                            save_csv(df, silver_path)
+                            self.pipeline_manager.add_or_get_source(f"{save_name}_clean_silver", "csv", silver_path)
                         elif table_name.lower() == "rental_transactions":
+                            # Keep all outputs for rental_transactions
                             if key == "equipment_utilisation":
                                 silver_path = os.path.join(SILVER_DIR, "equipment_utilisation.csv")
                             else:
                                 silver_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
-                        else:
-                            silver_path = os.path.join(SILVER_DIR, f"{save_name}_{key}.csv")
-
-                        if batch_type == "incremental" and os.path.exists(silver_path):
-                            existing_df = pd.read_csv(silver_path)
-                            df = pd.concat([existing_df, df]).drop_duplicates()
-
-                        save_csv(df, silver_path)
-                        self.pipeline_manager.add_or_get_source(f"{save_name}_{key}_silver", "csv", silver_path)
+                            if batch_type == "incremental" and os.path.exists(silver_path):
+                                existing_df = pd.read_csv(silver_path)
+                                df = pd.concat([existing_df, df]).drop_duplicates()
+                            save_csv(df, silver_path)
+                            self.pipeline_manager.add_or_get_source(f"{save_name}_{key}_silver", "csv", silver_path)
 
                     if batch_type == "incremental" and not bronze_df.empty:
                         max_ts = bronze_df["LastUpdated"].max()
